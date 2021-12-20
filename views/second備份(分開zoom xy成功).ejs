@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <!--
+    <meta http-equiv="refresh" content="30">
+    -->
+    <title>NCHC project</title>
+        <link rel='stylesheet' href='/stylesheets/style2.css' />
+        <link rel="stylesheet" href='/stylesheets/normalize.css'>
+        <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+        <script src="/libraries/jquery-3.1.1.min.js"></script>
+        <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+        
+        
+        
+      
+  </head>
+  <body>
+    <header class="page-header" role="banner">
+        <div class="inner">
+            <h1 class="site-logo"><a href="/index"><img src="/img/icon.png" alt="NCHC Project" height="65" width="200"></a></h1>
+            <nav class="primary-nav" role="navigation">
+                <ul>
+                    <li><a href="/index">Temperature</a></li>
+                    <li><a href="/second">Power</a></li>
+                    <li><a href="/third">3D Map</a></li>
+                    <li><a href="/fourth">Predict</a></li>
+                    
+                </ul>
+            </nav>
+        </div>
+    </header>  
+    
+    <input type = "date"/> 
+      
+    <button>Reset</button>
+      
+    <select name="mode selections" id= "mySelection" onchange="selection()">
+　       <option value="Total">Total</option>
+　       <option value="IT">IT</option>
+　       <option value="HVAC">HVAC</option>
+　       <option value="PUE">PUE</option>
+　   
+    </select>
+      
+    <div class="Row">
+        <svg width="960" height="500"></svg>
+        
+        
+    </div>  
+    
+    <div class="slider" id="slider-range"></div> 
+    
+
+      
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+    <script src="/libraries/d3-xyzoom.min.js"></script>  
+    <script>
+        //重要：這是將資料輸入script的方式
+        var powerData =<%-JSON.stringify(power)%>
+        //console.log(powerData);
+        
+        //變數宣告區
+        
+        //1. 用於"Total","IT","HVAC" mode之變數
+        var mode = ["Total","IT","HVAC","PUE"],modeSelected = 0; 
+        //對應Total,IT,HVAC的警告上限
+        var alertThreshold = [259,153.2,106];
+        
+        //2. 用於"PUE" mode之變數
+        var lineActive = 1 , lineActive2 = 1; 
+        
+        //company對應下方的PUE
+        //selectedID是在d3.select()時使用，用for一次直接設定，同樣對應company
+        var company = ["NCHC","Google","Ebay"];
+        var PUE = [1.52188,1.12,1.35];
+        var selectedID = ["#NCHC-PUE","#Google-PUE","#Ebay-PUE"];
+        
+        
+        //開始畫第一幅圖
+        var svg = d3.select("svg");
+        var margin = {top: 20, right: 20, bottom: 30, left: 40},
+        w = +svg.attr("width") - margin.left - margin.right,
+        h = +svg.attr("height") - margin.top - margin.bottom;
+        
+        var parseTime = d3.timeParse("%Y-%m-%d %H:%M:%S");
+        
+        var colors = d3.scaleOrdinal(d3.schemeCategory10);
+        
+        // set the ranges
+        var xScale = d3.scaleTime().range([0, w]);
+        var yScale = d3.scaleLinear().range([h, 0]);
+        
+        // Add the Axis
+        var xAxis = d3.axisBottom(xScale);//.tickFormat(d3.timeFormat("%Y-%m-%d %H"));
+        var yAxis = d3.axisLeft(yScale);
+        
+        var zoom = d3.xyzoom()
+            .extent([[xScale.range()[0], yScale.range()[0]], [xScale.range()[1], yScale.range()[1]]])
+            .scaleExtent([1,32])
+            .scaleRatio([1, 1])
+            //.translateExtent([[xScale.range()[0], yScale.range()[0]], [xScale.range()[1], yScale.range()[1]]])
+            .on('zoom', zoomed);
+            /*
+            d3.zoom()
+            .scaleExtent([1, 32])
+            .translateExtent([[0, 0], [w, h]])
+            .extent([[0, 0], [w, h]])
+            .on("zoom", zoomed);
+            */
+        
+        // define the line
+        var valueline = d3.line().curve(d3.curveMonotoneX)
+            .x(function(d) { return xScale(d.DataTime); })
+            .y(function(d) { return yScale(d.S3); });
+    
+        
+        //這個clip用來讓line不會超出axis範圍 對應css中.line的clip-path
+        svg.append("defs").append("clipPath")
+            .attr("id", "clip")
+            .append("rect")
+            .attr("width", w)
+            .attr("height", h);
+        
+        
+        var g = svg.append("g")
+            .attr("transform","translate(" + margin.left + "," + margin.top + ")")
+            .call(zoom);
+            
+
+        // format all the data
+        // 用for是因為powerData有三層資料(Total,IT,HVAC)
+        for(var i = 0 ; i < 3 ; i++)
+        {
+            powerData[i].forEach(function(d) {
+                d.DataTime = parseTime(d.DataTime);
+                d.S3 = +d.S3;
+                //d.S5 = +d.S5;
+            
+                //console.log(d.DataTime);
+            });
+        }
+        
+        // Scale the range of the data
+        // d3.extent會跟[d3.min(),d3.max()]會有一樣的結果
+        xScale.domain(d3.extent(powerData[modeSelected], function(d) { return d.DataTime; }));
+        //原先只有一條線的yScale
+        yScale.domain(d3.extent(powerData[modeSelected], function(d) { return d.S3; }));
+        
+        //兩條曲線的yScale
+        /*
+        yScale.domain(
+            [d3.min(powerData,function(d){ return Math.min(d.S3,d.S5)}),
+             d3.max(powerData,function(d){ return Math.max(d.S3,d.S5)})]);
+        */
+        // Add the valueline path.
+        
+        //draw line (In Total,HVAC,IT mode)
+        g.append("path")
+            .datum(powerData[modeSelected])
+            .attr("class", "line")
+            .style('stroke', function(d) { 
+                return colors(0); })
+            .attr("d", valueline);
+        
+        
+        //pre draw line in PUE mode
+        //純粹直線不能用append("path")，因為本來就沒有path這個東西，會變得無法顯示line
+        //先將圖畫好opacity設成0，切換到PUE時才顯示
+        //而因為此時xScale跟yScale都還不適合拿來畫，所以先不給值，等到切換後才給x1,y1,x2,y2
+        //第一條為NCHC自己的PUE結果
+        //第二條為Google data center的PUE結果
+        //第三條為Amazon data center的PUE結果
+        //用for一次設定
+        for(var i = 0 ; i < company.length ; i++)
+        {
+            //id為company[i]+"-PUE" ex:"NCHC-PUE","Google-PUE","Yahoo-PUE"
+            g.append("line").attr("class","line2").attr("id",company[i]+"-PUE")
+                .style('stroke', function(d) { 
+                    return colors(i); })
+                .attr("opacity",0);
+            g.append('text')
+                .attr("id" , company[i]+"-PUE-text")
+                .attr('dy', '1em')
+                .attr('text-anchor', 'end')
+                .text(company[i]+"-PUE")
+                .attr("opacity",0);
+        
+        }
+        
+        /*
+        //draw alert dot
+        g.selectAll("circle").data(powerData[modeSelected]).enter().append("circle")
+            .attr("class","circles")
+            .attr("r", function(d){ 
+                        //Total(第一個畫的圖)的threshold
+                        if(d.S3 > 259) return 5;
+                        else return 0 ;          
+                                  })
+            .attr("cx" , function(d){ return xScale(d.DataTime); })
+            .attr("cy" , function(d){ if(d.S3 > 30) return yScale(d.S3);})
+            .attr("fill" , "red");
+        */    
+        
+        //draw axis
+        var gX = g.append("g")
+            .attr("transform", "translate(0," + h + ")")
+            .attr("class","xAxis")
+            .call(xAxis)
+            .on("mouseover",function(){
+                zoom.scaleRatio([1, 0]);
+                console.log("xAxis");
+            });
+        
+        var gY = g.append("g").attr("class","yAxis").call(yAxis)
+            .on("mouseover",function(){
+                zoom.scaleRatio([0, 1]);
+                console.log("yAxis");
+            });
+        
+        gY.append("text")
+            .attr("fill", "#000")
+            .attr("transform", "rotate(-90)")
+            .attr("y", 6)
+            .attr("dy", "0.71em")
+            .attr("text-anchor", "end")
+            .text(" power(kw) ");
+            
+            
+
+        //draw grid
+        g.append("g").attr("class", "xGrid")
+            .attr("transform", "translate(0," + h + ")")
+            .on("mouseover",function(){
+                zoom.scaleRatio([1, 1]);
+            })
+            .call(d3.axisBottom(xScale).tickSize(-h).tickFormat(""));
+
+        g.append("g").attr("class", "yGrid")
+            .on("mouseover",function(){
+                zoom.scaleRatio([1, 1]);
+            })
+            .call(d3.axisLeft(yScale).tickSize(-w).tickFormat(""));
+        
+        //draw text 
+        //點選時用來隱藏/顯示線 (只有PUE mode中才會顯示)
+        /*
+        g.append("text").attr("x", w - 50 ).attr("y", margin.top)
+            .attr("class", "legend").style("fill",colors(0)).text("line ---")
+            .attr("opacity",0)
+            .on("click",function(){
+                if(lineActive == 1)    
+                    lineActive = 0;
+                else
+                    lineActive = 1;    
+                
+                d3.select(".line2").style("opacity", lineActive);
+            });
+        */
+        d3.select("button")
+            .on("click", resetted);
+        
+        function zoomed() {
+            
+            var t = d3.event.transform;
+            var xtrans = t.rescaleX(xScale);
+            var ytrans = t.rescaleY(yScale);
+            
+            g.select(".xAxis").call(xAxis.scale(xtrans));
+            g.select(".yAxis").call(yAxis.scale(ytrans));
+            g.select(".xGrid")
+                .call(d3.axisBottom(xtrans).tickSize(-h).tickFormat(""));
+            g.select(".yGrid")
+                .call(d3.axisLeft(ytrans).tickSize(-w).tickFormat(""));
+            g.select(".line")
+                .attr("d",valueline.x(function(d) { return xtrans(d.DataTime); }))
+                .attr("d",valueline.y(function(d) { return ytrans(d.S3); }));
+
+            g.selectAll("circle")
+                .attr("cx" , function(d){ return xtrans(d.DataTime); })
+                .attr("cy" , function(d) { return ytrans(d.S3); });
+            
+        }
+        
+        function resetted() {
+            g.transition().duration(800).call(zoom.transform, d3.zoomIdentity);
+
+        }
+        
+        //放在select box中的function 在切換選項時觸發
+        function selection(){
+            
+            
+            
+            //先看看選項是選哪一個
+            for(var i = 0 ; i < 4 ; i++)
+            {
+                if(document.getElementById("mySelection").value == mode[i])
+                    modeSelected = i;
+                
+                console.log(document.getElementById("mySelection").value ," ", mode[i]);
+            }
+            
+            //圖形就根據選擇結果變換
+            //首先就是PUE(modeSelected為3)因為需要另外做計算 所以分出來另外做
+            if(modeSelected == 3)
+            {
+                
+                g.select(".line").attr("opacity",0);
+                //g.select(".legend").attr("opacity",1);
+                d3.selectAll("circle").attr("r",0);
+                
+                xScale.domain([parseTime("2017-01-01 00:00:00"),parseTime("2017-01-31 23:59:00")]);
+                yScale.domain([1.0,2.0]);
+                g.select(".xAxis").call(xAxis.scale(xScale));
+                g.select(".yAxis").call(yAxis.scale(yScale));
+                g.select(".xGrid")
+                    .call(d3.axisBottom(xScale).tickSize(-h).tickFormat(""));
+                g.select(".yGrid")
+                    .call(d3.axisLeft(yScale).tickSize(-w).tickFormat(""));
+                
+                //因為資料幾乎都重複 所以直接設好要選擇的ID 
+                //將三條線用for做更改PUE值
+                for(var i = 0 ; i < company.length ; i++)
+                {
+                    g.select(selectedID[i])
+                        .attr("x1",xScale(parseTime("2017-01-01 00:00:00")))
+                        .attr("y1",yScale(PUE[i]))
+                        .attr("x2",xScale(parseTime("2017-01-31 23:59:00")))
+                        .attr("y2",yScale(PUE[i]))
+                        
+                        .attr("opacity",1);
+                    g.select(selectedID[i]+"-text")
+                        .attr("x",xScale(parseTime("2017-01-31 23:59:00")))
+                        .attr("y",yScale(PUE[i]))
+                        .style("fill",colors(i))
+                        .attr("opacity",1);
+                }
+                
+            }
+            //其餘是直接有資料可以畫線的就直接用powerData[modeSelected]方式更改資料
+            else
+            {    
+                g.select(".line").attr("opacity",1);
+                
+                for(var i = 0 ; i < company.length ; i++)
+                {
+                    g.select(selectedID[i]).attr("opacity",0);
+                    g.select(selectedID[i]+"-text").attr("opacity",0);
+                }
+                //g.select(".legend").attr("opacity",0);
+                
+                xScale.domain(d3.extent(powerData[modeSelected],function(d){
+                    return d.DataTime;}));
+                yScale.domain(d3.extent(powerData[modeSelected],function(d){
+                    return d.S3;}));
+                g.select(".xAxis").call(xAxis.scale(xScale));
+                g.select(".yAxis").call(yAxis.scale(yScale));
+                g.select(".xGrid")
+                    .call(d3.axisBottom(xScale).tickSize(-h).tickFormat(""));
+                g.select(".yGrid")
+                    .call(d3.axisLeft(yScale).tickSize(-w).tickFormat(""));
+                g.select(".line")
+                    .datum(powerData[modeSelected])
+                    .attr("d",valueline.x(function(d) { return xScale(d.DataTime); }))
+                    .attr("d",valueline.y(function(d) { return yScale(d.S3); }));
+
+                g.selectAll("circle").data(powerData[modeSelected])
+                    .attr("r", function(d){ 
+                            if(d.S3 > alertThreshold[modeSelected]) return 5;
+                            else return 0 ;          
+                                      })
+                    .attr("cx" , function(d){ return xScale(d.DataTime); })
+                    .attr("cy" , function(d) { return yScale(d.S3); });
+            }
+        }
+        
+        
+        
+        //~~~~用area做出zoom跟brush的圖 (直接可使用，保留參考用)
+        /*
+        var svg = d3.select("svg"),
+            
+            margin = {top: 20, right: 20, bottom: 110, left: 40},
+            margin2 = {top: 430, right: 20, bottom: 30, left: 40},
+            
+            
+            width = +svg.attr("width") - margin.left - margin.right,
+            height = +svg.attr("height") - margin.top - margin.bottom,
+            height2 = +svg.attr("height") - margin2.top - margin2.bottom;
+
+        var parseDate = d3.timeParse("%Y-%m-%d %H:%M:%S");
+
+        var x = d3.scaleTime().range([0, width]),
+            x2 = d3.scaleTime().range([0, width]),
+            y = d3.scaleLinear().range([height, 0]),
+            y2 = d3.scaleLinear().range([height2, 0]);
+
+        var xAxis = d3.axisBottom(x),
+            xAxis2 = d3.axisBottom(x2),
+            yAxis = d3.axisLeft(y);
+            
+
+        var brush = d3.brushX()
+            .extent([[0, 0], [width, height2]])
+            .on("brush end", brushed);
+
+        var zoom = d3.zoom()
+            .scaleExtent([1, Infinity])
+            .translateExtent([[0, 0], [width, height]])
+            .extent([[0, 0], [width, height]])
+            .on("zoom", zoomed);
+
+        var area = d3.area()
+            .curve(d3.curveLinear)
+            .x(function(d) { return x(d.DataTime); })
+            .y0(height)
+            .y1(function(d) { return y(d.S2); });
+
+        var area2 = d3.area()
+            .curve(d3.curveLinear)
+            .x(function(d) { return x2(d.DataTime); })
+            .y0(height2)
+            .y1(function(d) { return y2(d.S2); });
+
+        svg.append("defs").append("clipPath")
+            .attr("id", "clip")
+          .append("rect")
+            .attr("width", width)
+            .attr("height", height);
+
+        var focus = svg.append("g")
+            .attr("class", "focus")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+        var context = svg.append("g")
+            .attr("class", "context")
+            .attr("transform", "translate(" + margin2.left + "," + margin2.top + ")");
+
+        powerData.forEach(function(d) {
+            d.DataTime = parseDate(d.DataTime);
+            d.S2 = +d.S2;
+            //console.log(d.DataTime);
+        });
+        
+        x.domain(d3.extent(powerData, function(d) { return d.DataTime; }));
+        y.domain([80, d3.max(powerData, function(d) { return d.S2; })]);
+        x2.domain(x.domain());
+        y2.domain(y.domain());
+
+        focus.append("path")
+          .data([powerData])
+          .attr("class", "area")
+          .attr("d", area);
+
+        focus.append("g")
+          .attr("class", "axis axis--x")
+          .attr("transform", "translate(0," + height + ")")
+          .call(xAxis);
+
+        focus.append("g")
+          .attr("class", "axis axis--y")
+          .call(yAxis);
+
+        context.append("path")
+          .data([powerData])
+          .attr("class", "area")
+          .attr("d", area2);
+
+        context.append("g")
+          .attr("class", "axis axis--x")
+          .attr("transform", "translate(0," + height2 + ")")
+          .call(xAxis2);
+
+        context.append("g")
+          .attr("class", "brush")
+          .call(brush)
+          .call(brush.move, x.range());
+        
+        svg.append("rect")
+          .attr("class", "zoom")
+          .attr("width", width)
+          .attr("height", height)
+          .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+          .call(zoom);
+        
+
+        function brushed() {
+          if (d3.event.sourceEvent && d3.event.sourceEvent.type === "zoom") return; // ignore brush-by-zoom
+          var s = d3.event.selection || x2.range();
+          x.domain(s.map(x2.invert, x2));
+          focus.select(".area").attr("d", area);
+          focus.select(".axis--x").call(xAxis);
+          svg.select(".zoom").call(zoom.transform, d3.zoomIdentity
+              .scale(width / (s[1] - s[0]))
+              .translate(-s[0], 0));
+        }
+
+        function zoomed() {
+          if (d3.event.sourceEvent && d3.event.sourceEvent.type === "brush") return; // ignore zoom-by-brush
+          var t = d3.event.transform;
+          x.domain(t.rescaleX(x2).domain());
+          //y.domain(t.rescaleY(y).domain());
+          focus.select(".area").attr("d", area);
+          focus.select(".axis--x").call(xAxis);
+          //focus.select(".axis--y").call(yAxis);
+          context.select(".brush").call(brush.move, x.range().map(t.invertX, t));
+        }
+
+        function type(d) {
+          d.date = parseDate(d.date);
+          d.price = +d.price;
+          return d;
+        }    
+        
+        */
+        //~~~~~~~~~~
+        
+    </script>
+      
+    
+    
+    
+    
+    
+    <footer class="page-footer" role="contentinfo">
+            <small class="copyright">COPYRIGHT &copy; Ting Yu </small>
+    </footer>
+      
+    
+    
+  </body>
+</html>

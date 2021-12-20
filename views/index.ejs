@@ -1,0 +1,1570 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    
+    <title>NCHC project</title>
+    <link rel='stylesheet' href='/stylesheets/style.css' />
+    <link rel="stylesheet" href='/stylesheets/normalize.css'>
+    <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+    
+    
+      
+    <script src="/libraries/jquery-3.1.1.min.js"></script>
+    <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+    <script src="/libraries/spin.js"></script>
+        
+    
+    
+  </head>
+  <body>
+    <header class="page-header" role="banner">
+        <div class="inner">
+            <h1 class="site-logo"><a href="/index"><img src="/img/icon.png" alt="NCHC Project" height="65" width="200"></a></h1>
+            <nav class="primary-nav" role="navigation">
+                <ul>
+                    <li><a href="/index">Temperature</a></li>
+                    <li><a href="/second">Power</a></li>
+                    <li><a href="/third">3D Map</a></li>
+                    <li><a href="/fourth">Predict</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>  
+    
+    
+    <div class="Row">
+        <div class="Column" id="g1"></div>
+        <div class="Column2">
+                <div class="elementGroup">
+                    <label for="startDate" id="datePickerText" class="InsideContent">Select Month</label>
+                    <input name="startDate" id="datePicker" class="InsideContent" placeholder="click to show picker"/>
+                </div>
+                <div class="elementGroup">
+                    <div class="slider" id="date-slider-range"></div>
+                    <div class="slider" id="temp-slider-range"></div>
+                </div>
+        </div>
+        
+    </div>  
+      
+    
+      
+    
+      
+    <div class="Row">
+        <div class="Column" id="g2"></div>
+    </div>
+      
+    <!-- The Modal -->
+        <div id="myModal" class="modal">
+              <!-- Modal content -->
+              <div class="modal-content">
+                    <span class="close">&times;</span>
+                    <p id="modalText">Some text in the Modal..</p>
+                    <div id="g3" ></div>
+              </div>
+        </div>
+      
+    
+      
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+    <script>
+    // 需要將所有程式包在 window.onload = function(){} 這個式子裡面才有辦法執行modal
+    window.onload = function(){ 
+    
+        //重要：這是將資料輸入script的方式
+        var data = <%-JSON.stringify(items)%>;
+        
+        
+        //diffusion rate 因為資料太多了 所以用讀取外部資料方式來存取
+        //57行 有柱子 58,67,68 因為柱子特殊處理
+        var diffusionRate = <%-JSON.stringify(DF)%>
+        //diffusionRate將0,1顛倒
+        var reverseDiffusionRate = [];
+        
+        var deviceList = []; 
+        var dataInRow = [];
+        //dataOrder用來看說現在是使用foreach中哪一筆資料
+        var dataOrder = 0 , totalDataNumber = 0;
+        var temperature = [];
+        var temperature2 = [];
+        var dateForTooltip = [];
+        var sensorPosition =[
+                             858,856,854,852,979,-1,
+                             1032,1030,1028,1026,-1,-1,
+                             1316,1318,1320,1322,-1,-1,
+                             907,905,903,901,-1,-1,
+                             1017,1019,1021,1023,-1,-1,
+                             1307,1309,1311,1313,-1,-1,
+                             640,643,-1,-1,-1,-1,
+                             466,469,-1,-1,-1,-1
+                            ];
+        
+        //這個h是svg總高度，而非是中間方格圖的高度，方格圖的高是580，才能符合直的29格
+        //所以才有下面設定svg中的h-60
+        var w = 1000 , h = 640 , padding = 40 , size = 20;
+
+        var	parseTime = d3.timeParse("%Y-%m-%d %H:%M:%S");
+        
+        //先做資料的處理再做擴散
+        dataInit();
+        
+        
+        
+        countHotColdPointTemp();
+        for(var i = 0 ; i < 5 ; i++)
+            countTempVer3();
+        
+        //顏色設定
+        
+    
+        //別人使用漸層顏色的方式(註解掉的為了讓擴散比較好辨認的配色方式)
+        //var coloursYGB = ["#FFFFDD","#AAF191","#80D385","#61B385",
+                          //"#3E9583","#217681","#285285","#1F2D86","#000086"];
+        var coloursYGB = ["#2c7bb6","#00a6ca","#00ccbc","#90eb9d",
+                          "#ffff8c","#f9d057","#f29e2e","#e76818","#d7191c"];
+        var colourRangeYGB = d3.range(0, 1, 1.0 / (coloursYGB.length - 1));
+        colourRangeYGB.push(1);
+        
+        //Create color gradient
+        var colorScaleYGB = d3.scaleLinear().domain(colourRangeYGB).range(coloursYGB)
+                                .interpolate(d3.interpolateHcl);
+        //Needed to map the values of the dataset to the color scale
+        var colorInterpolateYGB = d3.scaleLinear().domain(d3.extent(temperature))
+                                .range([0,1]);
+        var colorInterpolateYGB2 = d3.scaleLinear().domain(d3.extent(temperature))
+                                .range([0,1]);
+        
+        //console.log(colorInterpolateYGB.domain());
+        
+        
+        //接著劃出兩個圖出來
+        
+        
+        // ~~~~~~~~~~~~~~~~~~~~~ 圖一 server room 配置圖
+        
+        var svg = d3.select("#g1").append("svg").attr("class","graph")
+                .attr("width",w).attr("height",h + 60);
+        var g = svg.append("g");
+        var rect = g.selectAll("rect")
+            .data(d3.merge(d3.range(0, w , size).map(function(x) {
+                return d3.range(0, h-60, size).map(function(y) {
+                    return [x, y];
+                });
+            })))
+        .enter().append("rect")
+        .attr("class","original")
+        .attr("transform", function(d) { return "translate(" + d + ")"; })
+        .attr("width", size)
+        .attr("height", size)
+        .style("stroke", "white")
+        .style("stroke-width", "1px")
+        .style("fill", function(d,i){   
+            return colorScaleYGB(colorInterpolateYGB(temperature[i]));
+        })
+        .on("mouseover",mouseHover)
+        .on("mouseout",mouseOut)
+        .on("click", mouseClick);
+
+        var rack1 = g.append("rect").attr("x", 300).attr("y", 60).attr("width", 180)                           .attr("height", 40).style("fill","white");
+
+        var rack2_up = g.append("rect").attr("x", 560).attr("y", 60).attr("width", 360)                           .attr("height", 35).style("fill","white");
+
+        var rack2_down = g.append("rect").attr("x", 560).attr("y", 125).attr("width", 360)                           .attr("height", 35).style("fill","white");
+
+        var rack3_up = g.append("rect").attr("x", 560).attr("y", 240).attr("width", 360)                           .attr("height", 35).style("fill","white");
+
+        var rack3_down = g.append("rect").attr("x", 560).attr("y", 305).attr("width", 360)                           .attr("height", 35).style("fill","white");
+
+        var rack4_up = g.append("rect").attr("x", 560).attr("y", 410).attr("width", 205)                           .attr("height", 40).style("fill","white");
+
+        var rack4_down = g.append("rect").attr("x", 560).attr("y", 480).attr("width", 205)                           .attr("height", 40).style("fill","white");
+
+        var circle = g.append("circle").attr("cx",893).attr("cy",470).attr("r",57)
+                .style("fill","white");
+
+        for(var i = 0 ; i < 2 ; i++)
+        {
+            for(var j = 0 ; j < 4 ; j++)
+            {
+                var pillar  = g.append("rect").attr("x", 180 +205*j).attr("y", 180+200*i)
+                    .attr("width", 25).attr("height", 25).style("fill","black");
+
+            }
+        }
+        
+        
+        
+        
+        //~~~~~~~~~~~~~~~~~~~~~~ 擴散結果再畫一個圖
+        
+        var svg2 = d3.select("#g2").append("svg").attr("class","graph")
+                    .attr("width",w).attr("height",h);
+        var g2 = svg2.append("g");
+        var rect = g2.selectAll("rect")
+            .data(d3.merge(d3.range(0, w , size).map(function(x) {
+                return d3.range(0, h -60, size).map(function(y) {
+                    return [x, y];
+                });
+            })))
+        .enter().append("rect")
+        .attr("class" , "diffused")
+        .attr("transform", function(d) { return "translate(" + d + ")"; })
+        .attr("width", size)
+        .attr("height", size)
+        .style("stroke", "white")
+        .style("stroke-width", "1px")
+        .style("fill", function(d,i){ 
+              
+            return colorScaleYGB(colorInterpolateYGB2(temperature2[i]));
+        });
+        
+        rack1 = g2.append("rect").attr("x", 300).attr("y", 60).attr("width", 180)                           .attr("height", 40).style("fill","white");
+
+        rack2_up = g2.append("rect").attr("x", 560).attr("y", 60).attr("width", 360)                           .attr("height", 35).style("fill","white");
+
+        rack2_down = g2.append("rect").attr("x", 560).attr("y", 125).attr("width", 360)                           .attr("height", 35).style("fill","white");
+
+        rack3_up = g2.append("rect").attr("x", 560).attr("y", 240).attr("width", 360)                           .attr("height", 35).style("fill","white");
+
+        rack3_down = g2.append("rect").attr("x", 560).attr("y", 305).attr("width", 360)                           .attr("height", 35).style("fill","white");
+
+        rack4_up = g2.append("rect").attr("x", 560).attr("y", 410).attr("width", 205)                           .attr("height", 40).style("fill","white");
+
+        rack4_down = g2.append("rect").attr("x", 560).attr("y", 480).attr("width", 205)                           .attr("height", 40).style("fill","white");
+
+        var circle = g2.append("circle").attr("cx",893).attr("cy",470).attr("r",57)
+                .style("fill","white");
+
+        for(var i = 0 ; i < 2 ; i++)
+        {
+            for(var j = 0 ; j < 4 ; j++)
+            {
+                var pillar  = g2.append("rect").attr("x", 180 +205*j).attr("y", 180+200*i)
+                    .attr("width", 25).attr("height", 25).style("fill","black");
+
+            }
+        }
+        
+        
+        //color gradient指示圖
+        
+        //step1 顏色設定
+        var color =["#2c7bb6","#00a6ca","#00ccbc","#90eb9d"
+                    ,"#ffff8c","#f9d057","#f29e2e","#e76818","#d7191c"];
+        var colorScale = d3.scaleLinear().domain([5,36]).range(color);
+        
+        
+        var defs = svg.append("defs");
+        var linearGradient = defs.append("linearGradient").attr("id", "linear-gradient");
+        
+        linearGradient.selectAll("stop") 
+            .data( colorScale.range())                  
+            .enter().append("stop")
+            .attr("offset", function(d,i) { return i/(colorScale.range().length-1); })
+            .attr("stop-color", function(d) { return d; });
+        
+        //step2 畫上rect著色
+        var legend = svg.append("g");
+        var legend2 = svg2.append("g");
+        legend.append("rect").attr("width", 400).attr("height", 20)
+            .attr("class", "legendRect")
+            .attr("x",w/2-200).attr("y",h - 30)
+            .style("fill", "url(#linear-gradient)");
+        
+        legend2.append("rect").attr("width", 400).attr("height", 20)
+            .attr("class", "legendRect")
+            .attr("x",w/2-200).attr("y",h - 30)
+            .style("fill", "url(#linear-gradient)");
+        
+        //step3 color gradient上的數字對應是使用axis
+        var legendScale = d3.scaleLinear().domain(colorInterpolateYGB.domain()).range([0,400]);
+        var legendAxis = d3.axisTop().scale(legendScale);
+        legend.append("g").attr("class","legendAxis")
+            .attr("transform","translate(" + (w/2-200) + "," + (h-30) +")")
+            .call(legendAxis);
+        
+        var legendScale2 = d3.scaleLinear().domain(colorInterpolateYGB2.domain())
+                                .range([0,400]);
+        var legendAxis2 = d3.axisTop().scale(legendScale2);
+        legend2.append("g").attr("class","legendAxis")
+            .attr("transform","translate(" + (w/2-200) + "," + (h-30) +")")
+            .call(legendAxis2);
+        
+        
+        
+        
+        
+        
+        
+        //以下為function
+        
+        
+        //將資料對應到1450個點中的相應溫度sensor的位置
+        function dataInit(){
+            var hotPoint = [
+        438,467,496,525,554,583,612,641,670,
+        439,468,497,526,555,584,613,642,671,
+        815,844,873,902,931,960,989,1018,1047,1076,1105,1134,1163,1192,1221,1250,1279,1308,
+        819,848,877,906,935,964,993,1022,1051,1080,1109,1138,1167,1196,1225,1254,1283,1312,
+        824,853,882,911,940,969,998,1027,1056,1085,1114,1143,1172,1201,1230,1259,1288,1317,
+        828,857,886,915,944,973,1002,1031,1060,1089,1118,1147,1176,1205,1234,1263,1292,1321,   833,862,891,920,949,978,1007,1036,1065,1094,
+        836,865,894,923,952,981,1010,1039,1068,1097,
+        837,866,895,924,953,982,1011,1040,1069,1098,
+        468,642,853,857,902,906,978,1018,1022,1027,1031,1308,1312,1317,1321
+                           ];
+            
+            var hotAsile = [
+         //基本上開放的那排不算是hotAsile 所以把這邊註解掉讓溫度可以被擴散，不會被diffusion rate鎖死
+         //440,469,498,527,556,585,614,643,672,
+         816,845,874,903,932,961,990,1019,1048,1077,1106,1135,1164,1193,1222,1251,1280,1309,
+         817,846,875,904,933,962,991,1020,1049,1078,1107,1136,1165,1194,1223,1252,1281,1310,
+         818,847,876,905,934,963,992,1021,1050,1079,1108,1137,1166,1195,1224,1253,1282,1311,
+         825,854,883,912,941,970,999,1028,1057,1086,1115,1144,1173,1202,1231,1260,1289,1318,
+         826,855,884,913,942,971,1000,1029,1058,1087,1116,1145,1174,1203,1232,1261,1290,1319,
+         827,856,885,914,943,972,1001,1030,1059,1088,1117,1146,1175,1204,1233,1262,1291,1320,
+         834,863,892,921,950,979,1008,1037,1066,1095,
+         835,864,893,922,951,980,1009,1038,1067,1096];
+            
+            var coldPoint = [];
+            
+            var coldAsile = [
+            437,466,495,524,553,582,611,640,669,
+            814,843,872,901,930,959,988,1017,1046,1075,1104,1133,1162,1191,1220,1249,1278,1307,
+            820,849,878,907,936,965,994,1023,1052,1081,1110,1139,1168,1197,1226,1255,1284,1313,
+            829,858,887,916,945,974,1003,1032,1061,1090,1119,1148,1177,1206,1235,1264,1293,1322,
+            832,861,890,919,948,977,1006,1035,1064,1093,
+            838,867,896,925,954,983,1012,1041,1070,1099,
+            ];
+            
+            //step1 先建出一個Adam各個com的對應列表
+            for(var i = 2 ; i < 10 ; i++)
+            {
+                for(var j = 0 ; j < 6 ; j++)
+                {
+                    deviceList.push("Adam"+i+"COM"+j);
+                }
+            }
+            //最後要將時間也加進去 完成資料表title的對應
+            deviceList.push("time");
+            //console.log(deviceList);
+            
+            //step2 將最新一筆資料(row)塞入dataInRow中
+            data.forEach(function(d) {
+                
+                //先清好資料
+                for(i = 0 ; i < 48 ; i++)
+                {
+                    
+                        //+是將資料變成能夠畫圖的float形式
+                        d[deviceList[i]] = +d[deviceList[i]];
+                    
+                }
+                //在d.time被轉換之前先將原本形式的時間儲存起來
+                //不然tootip出來的東西很恐怖
+                dateForTooltip.push(d.time);
+                d.time = parseTime(d.time);
+                
+                //再將dataInRow塞入第一筆最新資料
+                if(dataOrder == (data.length-1) )
+                {
+                    for(i = 0 ; i < 49 ; i++)
+                    {
+                        dataInRow.push(d[deviceList[i]]);
+                    }
+                }
+                dataOrder++;
+                
+            });
+            //dataOrder計算出來的結果是資料總筆數 需要把它儲存起來
+            //讓slider可以自動計算bar的數量,位置
+            totalDataNumber = dataOrder;
+            dataOrder = 0;
+            
+            console.log(dataInRow , "count" , dataOrder);
+            
+            
+            for(i = 0 ; i < 1450 ; i++)
+            {    
+                temperature.push(16.0);
+                
+                for(var k = 0 ; k < coldAsile.length ; k++)
+                {    
+                    if(i == coldAsile[k])
+                        temperature[i] = 13.0;
+                }
+                for(k = 0 ; k < hotAsile.length ; k++)
+                {    
+                    if(i == hotAsile[k])
+                        temperature[i] = 30.0;
+                }
+                
+            }
+            for(j = 0 ; j < 48 ; j++)
+                temperature[sensorPosition[j]] = parseFloat(dataInRow[j]);
+            
+            for(i = 0 ; i < 1450 ; i++)
+                temperature2.push(temperature[i]);
+            
+            //原先是將檔案讀取來的diffusionRate從string轉成float
+            //現在是變成是在hotPoint的位置就直接給0，其餘位置給1
+            for(i = 0 ; i < 1450 ; i++)
+            {    
+                //最原先只有這行 所以要改回來請刪掉其他的東西
+                //diffusionRate[i] = parseFloat(diffusionRate[i]);
+                
+                diffusionRate[i] = 1;
+                reverseDiffusionRate.push(0);
+                
+                for(var j = 0 ;  j < hotPoint.length ; j++ )
+                {    
+                    if(i == hotPoint[j])
+                    {
+                        diffusionRate[i] = 0;
+                        reverseDiffusionRate[i] = 1;
+                    }
+                        
+                }
+                for(var j = 0 ;  j < hotAsile.length ; j++ )
+                {    
+                    if(i == hotAsile[j])
+                    {    
+                        diffusionRate[i] = 0;
+                        reverseDiffusionRate[i] = 1;
+                    }
+                }
+                
+            }
+            console.log(reverseDiffusionRate);
+        }
+        
+        
+        
+        function countTempVer3(){
+                var hotPoint = [
+        438,467,496,525,554,583,612,641,670,
+        439,468,497,526,555,584,613,642,671,
+        815,844,873,902,931,960,989,1018,1047,1076,1105,1134,1163,1192,1221,1250,1279,1308,
+        819,848,877,906,935,964,993,1022,1051,1080,1109,1138,1167,1196,1225,1254,1283,1312,
+        824,853,882,911,940,969,998,1027,1056,1085,1114,1143,1172,1201,1230,1259,1288,1317,
+        828,857,886,915,944,973,1002,1031,1060,1089,1118,1147,1176,1205,1234,1263,1292,1321,   833,862,891,920,949,978,1007,1036,1065,1094,
+        836,865,894,923,952,981,1010,1039,1068,1097,
+        837,866,895,924,953,982,1011,1040,1069,1098,
+        //以下加入資料點 讓其溫度不會變化   
+        /*            
+        858,856,854,852,979,
+        1032,1030,1028,1026,
+        1316,1318,1320,1322,
+        907,905,903,901,
+        1017,1019,1021,1023,
+        1307,1309,1311,1313,
+        640,643,466,469
+        */
+                           ];
+            var hotAsile = [
+         //這邊第一排因為加入reverseDiffusionRate        
+         440,469,498,527,556,585,614,643,672,
+         816,845,874,903,932,961,990,1019,1048,1077,1106,1135,1164,1193,1222,1251,1280,1309,
+         817,846,875,904,933,962,991,1020,1049,1078,1107,1136,1165,1194,1223,1252,1281,1310,
+         818,847,876,905,934,963,992,1021,1050,1079,1108,1137,1166,1195,1224,1253,1282,1311,
+         825,854,883,912,941,970,999,1028,1057,1086,1115,1144,1173,1202,1231,1260,1289,1318,
+         826,855,884,913,942,971,1000,1029,1058,1087,1116,1145,1174,1203,1232,1261,1290,1319,
+         827,856,885,914,943,972,1001,1030,1059,1088,1117,1146,1175,1204,1233,1262,1291,1320,
+         834,863,892,921,950,979,1008,1037,1066,1095,
+         835,864,893,922,951,980,1009,1038,1067,1096];
+            
+            //以下為出風口點
+            var coldPoint = [407,408,409,410,
+        813,842,871,900,929,958,987,1016,1045,1074,1103,1132,1161,1190,1219,1248,1277,1306,
+        814,843,872,901,930,959,988,1017,1046,1075,1104,1133,1162,1191,1220,1249,1278,1307,
+        907,936,965,994,1023,
+        821,908,937,966,995,1024,1053,1082,1111,1140,1169,1198,1227,1256,1285,1314,
+        823,852,881,910,939,968,997,1026,1055,1084,1113,1142,1171,1200,1229,1258,1287,1316,
+        829,858,887,916,945,974,1003,1032,1061,1090,1119,1148,1177,1206,1235,1264,1293,1322,
+        947,976,1005,1034,1063,1092,1121,
+        809,838,867,896,925,954,983,1012,1041,1070,1099,1128,1157,1186,1215,1244,1273,1302,
+        839,868,897,926,955,984,1013,1042,1071,1100,1129,1158,1187,1216,1245,1274,1303,
+
+                            ]; 
+            
+            var fourDirection = [-1,+1,-29,+29];
+            var eightDirection = [-1,+1,-29,+29,-30,-28,+28,+30];
+            var atHotPoint = false;
+            var atHotAsile = false;
+            var atColdPoint = false;
+            var record = [];
+            
+            
+            for(var i = 0 ; i < 1450 ; i++)
+            {
+                var avg = 0.0,sum = 0 , count = 0;
+                
+                for(var j = 0 ; j < hotPoint.length ; j++)
+                {
+                    if(i == hotPoint[j])
+                        atHotPoint = true;
+                    
+                }
+                for(j = 0 ; j < hotAsile.length ; j++)
+                {
+                    if(i == hotAsile[j])
+                        atHotAsile = true;
+                    
+                }
+                for(j = 0 ; j < coldPoint.length ; j++)
+                {
+                    if(i == coldPoint[j])
+                        atColdPoint = true;
+                    
+                }
+                
+                if(!atHotPoint && !atHotAsile)
+                {   
+                    
+                    
+
+                    for(var j = 0 ; j < 8 ; j++)
+                    {
+                        
+                        
+                        switch(j){
+                            case 0:
+                                if(i+eightDirection[j] >= 0 && (i+eightDirection[j])%29 !=28)
+                                {    
+                                    if(diffusionRate[i-1] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i-1];
+                                    }
+                                }
+                                break;
+                            case 1:
+                                if(i+eightDirection[j] <= 1449 && (i+eightDirection[j])%29 !=0)
+                                {
+                                    if(diffusionRate[i+1] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i+1];
+                                    }
+                                }
+                                break;
+                            case 2:
+                                if(i+eightDirection[j] >= 0 )
+                                {    
+                                    if(diffusionRate[i-29] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i-29];
+                                    }
+                                }
+                                break;
+                            case 3:
+                                if(i+eightDirection[j] <= 1449)
+                                {    
+                                    if(diffusionRate[i+29] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i+29];
+                                    }
+                                }
+                                break;    
+                            case 4:
+                                if(i+eightDirection[j] >= 0 && (i+eightDirection[j])%29 != 28)
+                                {    
+                                    if(diffusionRate[i-30] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i-30];
+                                    }
+                                }
+                                break;
+                                
+                             case 5:
+                                if(i+eightDirection[j] >= 0 && (i+eightDirection[j])%29 != 0)
+                                {    
+                                    if(diffusionRate[i-28] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i-28];
+                                    }
+                                }
+                                break;
+                                
+                             case 6:
+                                if(i+eightDirection[j] <= 1449 
+                                   && (i+eightDirection[j])%29 != 28)
+                                {    
+                                    if(diffusionRate[i+28] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i+28];
+                                    }
+                                }
+                                break; 
+                              case 7:
+                                if(i+eightDirection[j] <= 1449 
+                                   && (i+eightDirection[j])%29 != 0)
+                                {    
+                                    if(diffusionRate[i+30] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i+30];
+                                    }
+                                }
+                                break; 
+                        }  
+                    }
+                    //若在冷氣出風口就多加一個出風口溫度來
+                    if(atColdPoint)
+                        avg = (sum + 10.0) / (count+1);
+                    else
+                        avg = sum/count;
+                    
+                    
+ 
+                }
+                else if(!atHotPoint && atHotAsile){
+                    
+
+                    for(var j = 0 ; j < 8 ; j++)
+                    {
+                         
+                        switch(j){
+                            case 0:
+                                if(i+eightDirection[j] >= 0 && (i+eightDirection[j])%29 !=28)
+                                {    
+                                    if(reverseDiffusionRate[i-1] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i-1];
+                                    }
+                                }
+                                break;
+                            case 1:
+                                if(i+eightDirection[j] <= 1449 && (i+eightDirection[j])%29 !=0)
+                                {
+                                    if(reverseDiffusionRate[i+1] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i+1];
+                                    }
+                                }
+                                break;
+                            case 2:
+                                if(i+eightDirection[j] >= 0 )
+                                {    
+                                    if(reverseDiffusionRate[i-29] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i-29];
+                                    }
+                                }
+                                break;
+                            case 3:
+                                if(i+eightDirection[j] <= 1449)
+                                {    
+                                    if(reverseDiffusionRate[i+29] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i+29];
+                                    }
+                                }
+                                break;    
+                            case 4:
+                                if(i+eightDirection[j] >= 0 && (i+eightDirection[j])%29 != 28)
+                                {    
+                                    if(reverseDiffusionRate[i-30] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i-30];
+                                    }
+                                }
+                                break;
+                                
+                             case 5:
+                                if(i+eightDirection[j] >= 0 && (i+eightDirection[j])%29 != 0)
+                                {    
+                                    if(reverseDiffusionRate[i-28] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i-28];
+                                    }
+                                }
+                                break;
+                                
+                             case 6:
+                                if(i+eightDirection[j] <= 1449 
+                                   && (i+eightDirection[j])%29 != 28)
+                                {    
+                                    if(reverseDiffusionRate[i+28] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i+28];
+                                    }
+                                }
+                                break; 
+                              case 7:
+                                if(i+eightDirection[j] <= 1449 
+                                   && (i+eightDirection[j])%29 != 0)
+                                {    
+                                    if(reverseDiffusionRate[i+30] != 0)
+                                    {    
+                                        count++;
+                                        sum = sum + temperature2[i+30];
+                                    }
+                                }
+                                break; 
+                        }  
+                    }
+                    
+                    
+                    avg = sum/count;
+                    
+                    
+                }
+                
+                if(i == 440)    
+                    console.log(i , ":" , sum ," / ", count);
+                if(count != 0)
+                    temperature2[i] = avg;
+                
+                record.push(avg); 
+                atHotPoint = false;
+                atHotAsile = false;
+                atColdPoint = false;
+                
+                   
+            }
+            //console.log("temp2" ,temperature2);
+            //console.log("sum = " ,record);
+            
+            
+        }
+        
+        
+        function countHotColdPointTemp(){
+            
+            //hotPoint是反推熱源的位置 
+            //467,641是吸入口，不需要推算他的
+            var hotPoint = [468,642,853,857,902,906,978,
+                            1018,1022,1027,1031,1308,1312,1317,1321];
+            
+            
+            //otherHotPoint是所有熱源的位置 是除了hotPoint以外同rack的點
+            var otherHotPoint = [
+        [438,467,496,525,554,583,612,641,670,
+        439,497,526,555,584,613,671],
+        [815,844,873,931,960,989,1047,1076,1105,1134,1163,1192,1221,1250,1279],
+        [819,848,877,935,964,993,1051,1080,1109,1138,1167,1196,1225,1254,1283],
+        [824,882,911,940,969,998,1056,1085,1114,1143,1172,1201,1230,1259,1288],
+        [828,886,915,944,973,1002,1060,1089,1118,1147,1176,1205,1234,1263,1292],  [833,862,891,920,949,1007,1036,1065,1094,
+        836,865,894,923,952,981,1010,1039,1068,1097,
+        837,866,895,924,953,982,1011,1040,1069,1098]
+                           ];
+            
+            //下面hotPointInCertainRack是根據otherHotPoint所區分的rack來分類hotPoint
+            var hotPointInCertainRack = [[468,642],[902,1018,1308],[906,1022,1312],
+                                         [853,1027,1317],[857,1031,1321],[978]];
+            
+            var hotPointTemp = [];
+            
+            //以下為出風口點
+            var coldPoint = [407,408,409,410,
+        813,842,871,900,929,958,987,1016,1045,1074,1103,1132,1161,1190,1219,1248,1277,1306,
+        814,843,872,901,930,959,988,1017,1046,1075,1104,1133,1162,1191,1220,1249,1278,1307,
+        907,936,965,994,1023,
+        821,908,937,966,995,1024,1053,1082,1111,1140,1169,1198,1227,1256,1285,1314,
+        823,852,881,910,939,968,997,1026,1055,1084,1113,1142,1171,1200,1229,1258,1287,1316,
+        829,858,887,916,945,974,1003,1032,1061,1090,1119,1148,1177,1206,1235,1264,1293,1322,
+        947,976,1005,1034,1063,1092,1121,
+        809,838,867,896,925,954,983,1012,1041,1070,1099,1128,1157,1186,1215,1244,1273,1302,
+        839,868,897,926,955,984,1013,1042,1071,1100,1129,1158,1187,1216,1245,1274,1303,
+
+                            ]; 
+            
+            
+            var fourDirection = [-1,+1,-29,+29];
+            var eightDirection = [-1,+1,-29,+29,-30,-28,+28,+30];
+            
+            var atHotPoint = false;
+            var atColdPoint = false;
+            
+            //Step1 反推影響sensor位置的熱源
+            for(var i = 0 ; i < 1450 ; i++)
+            {
+                for(var j = 0 ; j < hotPoint.length ; j++)
+                {
+                    if(i == hotPoint[j])
+                        atHotPoint = true;
+                }
+                
+                
+                
+                if(atHotPoint)
+                {    
+                    //hottest記錄周圍四方位溫度最高的點
+                    var hottest = 0,tem;
+                    
+                    for(var j = 0 ; j < 4 ; j++)
+                    {
+                        tem = temperature[i+fourDirection[j]];
+                        
+                        //console.log("point",i," fourDirection ",j," -->",tem);
+                        
+                        if(tem > hottest)
+                            hottest = tem;
+                    }
+                    //記錄反推出來的結果
+                    hotPointTemp.push((0.5*hottest - 2) / 0.4);
+                    
+                    //console.log("result: ",(0.5*hottest - 2) / 0.4);
+                    
+                    
+                }
+                
+                
+                //儲存反推出來的結果到temperature2
+                for(var j = 0 ; j < hotPoint.length ; j++)
+                {
+                    if(i == hotPoint[j])
+                        temperature2[i] = hotPointTemp[j];
+                }
+                
+                
+                
+                 
+                
+                //為了確認下一個i的位置是否為hotPoint，需要將atHotPoint弄成false
+                atHotPoint = false;
+                atColdPoint= false;
+                
+            }
+            
+            
+            /*
+            for(var i = 0 ; i < 1450 ; i++)
+            {
+                for(var j = 0 ; j < otherHotPoint.length ; j++)
+                {
+                    for(var k = 0 ; k < otherHotPoint[j].length ; k++)
+                        if(i == hotPoint[j][k])
+                        {
+                            certainRack = j; //確定是在哪一個rack
+                        }
+                    
+                    sum += temperature2[hotPointInCertainRack[certainRack][j]]; 
+                }
+                
+                
+            }
+            */
+            
+            //計算各排(otherHotPoint為基準)rack平均hotPoint溫度
+            var avgOfCertainRack = [],avg,sum = 0;
+            for(var i = 0 ; i < hotPointInCertainRack.length ; i++)
+            {
+                for(var j = 0 ; j < hotPointInCertainRack[i].length ; j++)
+                {    
+                    
+                        sum += temperature2[hotPointInCertainRack[i][j]];    
+                }
+                
+                avg = sum/hotPointInCertainRack[i].length;
+                
+                avgOfCertainRack.push(avg);
+                
+                sum = 0;
+                avg = 0;
+            }
+            //然後把它分配給同一排rack的
+            for(var i = 0 ; i < otherHotPoint.length ; i++)
+            {
+                for(var j = 0 ; j < otherHotPoint[i].length ; j++)
+                {
+                    temperature2[otherHotPoint[i][j]] = avgOfCertainRack[i];
+                }
+            }
+            
+            //console.log(hotPointTemp);
+            console.log("avgOfCertainRack:",avgOfCertainRack);
+            console.log(temperature2);
+        }
+        
+        //從http get拿到資料後執行這個function
+        function httpGETUpdateData(){
+            
+            //先清除所有資料
+            dateForTooltip = [];
+            dataInRow = [];
+            dataOrder = 0;
+            
+            //重新清理所有資料
+            data.forEach(function(d,i) {
+                
+                //先清好資料
+                for(var j = 0 ; j < 48 ; j++)
+                {
+                    //+是將資料變成能夠畫圖的float形式
+                    d[deviceList[j]] = +d[deviceList[j]];
+                    
+                }
+                //在d.time被轉換之前先將原本形式的時間儲存起來
+                //不然tootip出來的東西很恐怖
+                dateForTooltip.push(d.time);
+                d.time = parseTime(d.time);
+                
+                //再將dataInRow塞入第一筆最新資料
+                if(dataOrder == (data.length-1) )
+                {
+                    for(j = 0 ; j < 49 ; j++)
+                    {
+                        dataInRow.push(d[deviceList[j]]);
+                    }
+                }
+                dataOrder++;
+                
+            });
+            totalDataNumber = dataOrder;
+            dataOrder = 0;
+            
+            console.log("Ajax new dataInRow",dataInRow);
+            
+            //更新temp跟temp2資料
+            for(j = 0 ; j < 48 ; j++)
+                temperature[sensorPosition[j]] = parseFloat(dataInRow[j]);
+            
+            for(j = 0 ; j < 1450 ; j++)
+                temperature2[j] = temperature[j];
+            
+            //重新計算溫度分佈
+            countHotColdPointTemp();
+            for(var i = 0 ; i < 5 ; i++)
+                countTempVer3();
+            
+            console.log("Ajax new temp2",temperature2);
+            
+            //重畫分布圖
+            d3.selectAll(".original").style("fill", function(d,i){ 
+                
+                return colorScaleYGB(colorInterpolateYGB(temperature[i]));
+            });
+            
+            d3.selectAll(".diffused").style("fill", function(d,i){ 
+                
+                return colorScaleYGB(colorInterpolateYGB2(temperature2[i]));
+            });
+            
+            //更新溫度分佈資料
+            colorInterpolateYGB.domain(d3.extent(temperature));
+            colorInterpolateYGB2.domain(d3.extent(temperature2));
+        
+            //更新slider資料
+            $("#date-slider-range").slider("option", "min", 0 );
+            $("#date-slider-range").slider("option", "max", totalDataNumber - 1);
+            $("#date-slider-range").slider("option", "value", totalDataNumber - 1);
+            
+            $("#temp-slider-range").slider("option" , "min" , d3.min(temperature2));
+            $("#temp-slider-range").slider("option" , "max" , d3.max(temperature2));
+            $("#temp-slider-range").slider("option" , "values" ,  d3.extent(temperature2)); 
+            
+            //因為curValue只有在滑的時候才會更新，為了不讓ajax結束後tooltip的值還是未更新前的
+            //所以我們在此直接更改tooptip值，進而更新整個tooltip
+            curValue = dateForTooltip[totalDataNumber - 1];
+            tooltip = '<div class="tooltip"><div class="tooltip-inner">' + curValue + '</div><div class="tooltip-arrow"></div></div>';
+            
+            console.log("curValue:",curValue);
+        }
+        
+        //拖拉slider時去更新溫度分布圖
+        function sliderUpdateData(position){
+            
+            dataOrder = 0;
+            
+            data.forEach(function(d,i) {
+                
+                //讓dataInRow輸入slider對應的資料
+                if(dataOrder == position)
+                {
+                    for(var j = 0 ; j < 49 ; j++)
+                    {
+                        dataInRow[j] = d[deviceList[j]];
+                    }
+                }
+                
+                dataOrder++;
+                
+            });
+            
+            dataOrder = 0;
+            
+            console.log(dataInRow);
+            
+            //更新資料
+            for(var j = 0 ; j < 48 ; j++)
+                temperature[sensorPosition[j]] = parseFloat(dataInRow[j]);
+            
+            //temperature2.length = 0;
+            
+            for(var i = 0 ; i < 1450 ; i++)
+            {
+               temperature2[i] = temperature[i];
+            }
+            
+            
+            //console.log("temperature data",temperature);
+            //console.log("temperature2 data",temperature2);
+            
+            //重新計算溫度分佈
+            countHotColdPointTemp();
+            for(var i = 0 ; i < 5 ; i++)
+                countTempVer3();
+            
+            
+            
+            //重新繪製
+            d3.selectAll(".original").style("fill", function(d,i){ 
+                
+                return colorScaleYGB(colorInterpolateYGB(temperature[i]));
+            });
+            
+            d3.selectAll(".diffused").style("fill", function(d,i){ 
+                
+                return colorScaleYGB(colorInterpolateYGB2(temperature2[i]));
+            });
+            
+        }
+        
+        function colorDomainChange(newRange){
+            
+            //console.log(temperature2);
+            //1.重新設定方塊圖的顏色domain
+            colorInterpolateYGB.domain(newRange);
+            colorInterpolateYGB2.domain(newRange);
+            
+            d3.selectAll(".original").style("fill", function(d,i){
+                    if(temperature[i] < newRange[0])
+                        return colorScaleYGB(colorInterpolateYGB(newRange[0]));
+                    else if(temperature[i] > newRange[1])    
+                        return colorScaleYGB(colorInterpolateYGB(newRange[1]));
+                    else    
+                        return colorScaleYGB(colorInterpolateYGB(temperature[i]));
+            });
+            
+            d3.selectAll(".diffused").style("fill", function(d,i){
+                    if(temperature2[i] < newRange[0])
+                        return colorScaleYGB(colorInterpolateYGB2(newRange[0]));
+                    else if(temperature2[i] > newRange[1])    
+                        return colorScaleYGB(colorInterpolateYGB2(newRange[1]));
+                    else    
+                        return colorScaleYGB(colorInterpolateYGB2(temperature2[i]));
+            });
+            /*
+            legendScale.domain(colorInterpolateYGB.domain());
+            legendAxis.scale(legendScale);
+            legend.call(legendAxis);
+            legend2.call(legendAxis);
+            */
+        }
+        
+        
+        //滑鼠在第一張圖上的動作(在那個格子上的時候)
+        function mouseHover(d,i){
+            
+            for(var j = 0 ; j < 48 ; j++)
+            {
+                if(i == sensorPosition[j])
+                {
+                    var selected = d3.select(this).transition().duration(100)
+                            .style("fill","red");
+                    console.log(i);
+                }
+                else
+                    var selected = d3.select(this).transition().duration(10).style("fill-opacity",0.3);
+            }
+            //console.log(i);
+        }
+
+        //滑鼠在第一張圖上的動作(離開那個格子的時候)
+        function mouseOut(d,i)
+        {
+            var selected = d3.select(this).transition().duration(500).style("fill-opacity",1);
+            
+        }
+        
+        //此click開啓modal
+        function mouseClick(d,i)
+        {
+            modal.style.display = "block";
+            document.getElementById("modalText").innerHTML = i;
+            graphOnModal2(i);
+        }
+            
+        //圖三  畫在modal上的line chart
+        
+        //這裡畫了兩種樣式 第一種是完全不能放大拖曳的
+        function graphOnModal(selection){
+            
+            d3.select(".graph2").remove();
+            
+            //開啓modal時所選擇的格子(selection) 進而對應deviceList的某一個裝置COM(deviceCOMSelection)
+            var deviceCOMSelection;
+        
+            for(var i=0 ; i < 48 ; i++){
+                if(selection == sensorPosition[i])  
+                    deviceCOMSelection = deviceList[i];
+            }
+
+            var margin = {top: 20, right: 20, bottom: 30, left: 40},
+                width = 560,
+                height = 300 ;
+
+
+            var colors = d3.scaleOrdinal(d3.schemeCategory10);
+
+            // set the ranges
+            var xScale = d3.scaleTime().range([0, width]);
+            var yScale = d3.scaleLinear().range([height, 0]);
+
+            // Add the Axis
+            var xAxis = d3.axisBottom(xScale);//.tickFormat(d3.timeFormat("%Y-%m-%d %H"));
+            var yAxis = d3.axisLeft(yScale);
+
+
+            // define the line
+            var valueline = d3.line().curve(d3.curveMonotoneX)
+                .x(function(d) { return xScale(d.time); })
+                .y(function(d) { return yScale(d[deviceCOMSelection]); });
+
+
+            var svg3 = d3.select("#g3").append("svg").attr("class","graph2")
+                        .attr("width",width).attr("height",height);
+
+            var g3 = svg3.append("g")
+                .attr("transform","translate(" + margin.left + "," + margin.top + ")");
+
+
+            // format the data
+            //因為資料已經在dataInit裡format過了，所以我們不需要再度parse一次 這裡擺著是怕以後會用到
+            /*
+            data.forEach(function(d) {
+                d.time = parseTime(d.time);
+                d.Adam5COM1 = +d.Adam5COM1;
+                console.log(d.time);
+
+            });
+            */
+        
+            xScale.domain(d3.extent(data, function(d) { return d.time; }));
+            yScale.domain(d3.extent(data, function(d) { return d[deviceCOMSelection]; }));
+
+
+            // Add the valueline path.
+
+            //draw line
+            g3.append("path")
+                .data([data])
+                .attr("class", "line")
+                .style('stroke', function(d) { 
+                    return colors(0); })
+                .attr("d", valueline);
+
+
+
+            //draw axis
+            g3.append("g")
+                .attr("transform", "translate(0," + height + ")")
+                .attr("class","xAxis")
+                .call(xAxis);
+
+            g3.append("g").attr("class","yAxis").call(yAxis);
+
+            //draw grid
+            g3.append("g").attr("class", "xGrid")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(xScale).tickSize(-height).tickFormat(""));
+
+            g3.append("g").attr("class", "yGrid")
+                .call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""));
+        
+        }
+        
+        //第二種是X軸有zoom及brush功能
+        function graphOnModal2(selection){
+            
+            d3.select(".graph2").remove();
+            
+            var deviceCOMSelection;
+        
+            for(var i=0 ; i < 48 ; i++){
+                if(selection == sensorPosition[i])  
+                    deviceCOMSelection = deviceList[i];
+            }
+            
+            var svg3 = d3.select("#g3").append("svg").attr("class","graph2")
+                        .attr("width",width).attr("height",height);
+
+            var margin = {top: 20, right: 20, bottom: 110, left: 40};
+            var margin2 = {top: 260, right: 20, bottom: 30, left: 40};
+            
+            
+            var width = 560 , height = 200 , height2 = 50;
+
+
+            var x = d3.scaleTime().range([0, width]),
+                x2 = d3.scaleTime().range([0, width]),
+                y = d3.scaleLinear().range([height, 0]),
+                y2 = d3.scaleLinear().range([height2, 0]);
+
+            var xAxis = d3.axisBottom(x),
+                xAxis2 = d3.axisBottom(x2),
+                yAxis = d3.axisLeft(y);
+
+
+            var brush = d3.brushX()
+                .extent([[0, 0], [width, height2]])
+                .on("brush end", function(){
+                        if (d3.event.sourceEvent && d3.event.sourceEvent.type === "zoom") return; // ignore brush-by-zoom
+                        var s = d3.event.selection || x2.range();
+                        x.domain(s.map(x2.invert, x2));
+                        focus.select(".area").attr("d", area);
+                        focus.select(".axis--x").call(xAxis);
+                        svg3.select(".zoom").call(zoom.transform, d3.zoomIdentity
+                          .scale(width / (s[1] - s[0]))
+                          .translate(-s[0], 0));
+                    });
+
+            var zoom = d3.zoom()
+                .scaleExtent([1, Infinity])
+                .translateExtent([[0, 0], [width, height]])
+                .extent([[0, 0], [width, height]])
+                .on("zoom", function(){
+                    if (d3.event.sourceEvent && d3.event.sourceEvent.type === "brush") return; // ignore zoom-by-brush
+                    var t = d3.event.transform;
+                    x.domain(t.rescaleX(x2).domain());
+                    //y.domain(t.rescaleY(y).domain());
+                    focus.select(".area").attr("d", area);
+                    focus.select(".axis--x").call(xAxis);
+                    //focus.select(".axis--y").call(yAxis);
+                    context.select(".brush").call(brush.move, x.range().map(t.invertX, t));
+                });
+
+            var area = d3.line()
+                .curve(d3.curveMonotoneX)
+                .x(function(d) { return x(d.time); })
+                .y(function(d) { return y(d[deviceCOMSelection]); });
+
+            var area2 = d3.line()
+                .curve(d3.curveMonotoneX)
+                .x(function(d) { return x2(d.time); })
+                .y(function(d) { return y2(d[deviceCOMSelection]); });
+
+            svg3.append("defs").append("clipPath")
+                .attr("id", "clip")
+              .append("rect")
+                .attr("width", width)
+                .attr("height", height);
+
+            var focus = svg3.append("g")
+                .attr("class", "focus")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+            var context = svg3.append("g")
+                .attr("class", "context")
+                .attr("transform", "translate(" + margin2.left + "," + margin2.top + ")");
+            /*
+            data.forEach(function(d) {
+                d.DataTime = parseTime(d.time);
+                d[deviceCOMSelection] = +d[deviceCOMSelection];
+                //console.log(d.DataTime);
+            });
+            */
+            x.domain(d3.extent(data, function(d) { return d.time; }));
+            y.domain(d3.extent(data, function(d) { return d[deviceCOMSelection]; }));
+            x2.domain(x.domain());
+            y2.domain(y.domain());
+
+            focus.append("path")
+              .data([data])
+              .attr("class", "area")
+              .attr("d", area);
+
+            focus.append("g")
+              .attr("class", "axis axis--x")
+              .attr("transform", "translate(0," + height + ")")
+              .call(xAxis);
+
+            focus.append("g")
+              .attr("class", "axis axis--y")
+              .call(yAxis);
+
+            context.append("path")
+              .data([data])
+              .attr("class", "area")
+              .attr("d", area2);
+
+            context.append("g")
+              .attr("class", "axis axis--x")
+              .attr("transform", "translate(0," + height2 + ")")
+              .call(xAxis2);
+
+            context.append("g")
+              .attr("class", "brush")
+              .call(brush)
+              .call(brush.move, x.range());
+
+            svg3.append("rect")
+              .attr("class", "zoom")
+              .attr("width", width)
+              .attr("height", height)
+              .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+              .call(zoom);
+            
+
+        
+        }
+        
+
+
+        //以下modal設定
+
+        // Get the modal
+        var modal = document.getElementById('myModal');
+
+        // Get the <span> element that closes the modal
+        var span = document.getElementsByClassName("close")[0];
+        
+        // When the user clicks on <span> (x), close the modal
+        span.onclick = function() {
+            modal.style.display = "none";
+        }
+
+        // When the user clicks anywhere outside of the modal, close it
+        window.onclick = function(event) {
+            if (event.target == modal) {
+                modal.style.display = "none";
+            }
+        }
+        
+        //以下slider用jquery控制
+        
+        //當有兩個slider時需要變換目標，不能一直是$('.ui-slider-handle') (原先target部分)
+        //不然會造成相同tooltip顯示在不同的slider上
+        var target;
+        var curValue;
+        var tooltip;
+        
+        //調整時間的slider
+        $(function() {
+            $( "#date-slider-range" ).slider({
+                min: 0,
+                max: totalDataNumber - 1,
+                value: totalDataNumber - 1,
+                orientation: "vertical",
+                create: function(event, ui){
+                     
+                    //ui.handle就是現在滑的bar
+                    target = ui.handle || $('.ui-slider-handle');
+                    
+                    //在產生slider時tooltip的內容
+                    curValue = dateForTooltip[totalDataNumber - 1];
+                    tooltip = '<div class="tooltip"><div class="tooltip-inner">' + curValue + '</div><div class="tooltip-arrow"></div></div>';
+                    
+                
+                },
+                
+                slide: function( event, ui ){
+                    
+                    
+                    console.log("New Time",ui.value);
+                    
+                    //移動之後更新資料
+                    sliderUpdateData(ui.value);
+                    
+                    //移動後修改tooltip的內容
+                    target = ui.handle || $('.ui-slider-handle');
+                    curValue = dateForTooltip[ui.value];
+                    tooltip = '<div class="tooltip"><div class="tooltip-inner">' + curValue + '</div><div class="tooltip-arrow"></div></div>';
+
+                    $(target).html(tooltip);
+                },
+                
+                stop: function( event, ui ){
+                    //多出這行是怕說滑鼠再滑的時候有時候會偏離slider桿子
+                    //這時tooltip就會一直留在那邊 所以需要多加這行 在結束之後tooltip隱藏
+                    $(target).html("");
+                }
+            });
+            
+            //在滑鼠放到slider桿子上的時候顯示tooltip 離開時隱藏
+            $(target).mouseleave(
+                function(){ $(target).html(""); });
+            $( target ).mouseenter(
+                function() { $(target).html(tooltip); });
+                
+                
+        });
+
+        //調整溫度gradient的slider 
+        $(function() {
+            $( "#temp-slider-range" ).slider({
+                range: true,
+                min: d3.min(temperature2),
+                max: d3.max(temperature2),
+                values: d3.extent(temperature2),
+                orientation: "vertical",
+                
+                slide: function( event, ui ){
+                    console.log("New Temp Range",ui.values);
+                    colorDomainChange(ui.values);
+                },
+            });       
+        });
+        
+        
+        $(function() {
+            $('#datePicker').datepicker({
+                
+                dateFormat: "mm/yy",
+                changeMonth: true,
+                changeYear: true,
+                showButtonPanel: true,
+                onClose: function(dateText, inst) {
+                    function isDonePressed(){
+                        return ($('#ui-datepicker-div').html().indexOf('ui-datepicker-close ui-state-default ui-priority-primary ui-corner-all ui-state-hover') > -1);
+                    }
+
+                    if (isDonePressed()){
+                        var month = $("#ui-datepicker-div .ui-datepicker-month :selected").val();
+                        var year = $("#ui-datepicker-div .ui-datepicker-year :selected").val();
+                        
+                        //發現這邊拿到的month是重零開始計算的
+                        console.log("month:" , month , "year" , year);
+                        $(this).datepicker('setDate', new Date(year, month, 1)).trigger('change');
+                        
+                        $('#datePicker').focusout()//Added to remove focus from datepicker input box on selecting date
+                        
+                        
+                        //發現這邊拿到的month是重零開始計算的 所以需要+1
+                        month++; 
+                        
+                        var ajaxOrNot = true;
+                        if(year == "2016")
+                        {    
+                            if(month == 12)
+                            {
+                                ajaxOrNot = true;   
+                            }
+                            else
+                                ajaxOrNot = false;
+                        }
+                        else if(year == "2017")
+                        {
+                            if(month == 1 || month == 2)
+                            {
+                                ajaxOrNot = true;   
+                            }
+                            else
+                                ajaxOrNot = false; 
+                        }
+                        else
+                        {
+                            ajaxOrNot = false;
+                        }
+                        
+                        console.log(month , year , ajaxOrNot);
+                        
+                        if(ajaxOrNot == true)
+                        {    
+                            //使用等待讀取的圖示等到ajax get資料傳送回去client端
+                            var opts = {    
+                                lines:13,length:35,width:14,radius:42,scale:1.00,corners:1.0
+                                ,opacity:0.25,rotate:0,direction:1,speed:1.0,trail:60,top:50
+                                ,left:50,className: 'spinner'
+                            };
+                            //讓旋轉圖開始旋轉表示有資料正在讀
+                            var spinner = new Spinner().spin(document.getElementById("g1"));
+
+                            svg.select("g").style("fill-opacity",0.3);
+
+                            //因為沒有另外在app.use定義index的router，僅僅"/"就會指向index
+                            //所以只用/update來get
+                            $.get("index/update",{year: year , month: month},function(result){
+
+                                data = result;
+                                /*
+                                document.getElementById("dataText").innerHTML = "";
+                                data.forEach(function(obj){
+                                    document.getElementById("dataText").innerHTML += obj.S3;
+                                });
+                                */
+                                //將繪圖資料重新清理,slider range重設,
+                                httpGETUpdateData();
+
+                                //讀完資料結束旋轉
+                                spinner.stop();
+                                svg.select("g").style("fill-opacity",1.0);
+
+                                console.log("GET data",data);
+                            });
+                        }
+                        else
+                            alert("You can only select 2016/12 ~ 2017/02");
+                    }
+                },
+                beforeShow : function(input, inst) {
+
+                    inst.dpDiv.addClass('month_year_datepicker')
+                    
+                    if ((datestr = $(this).val()).length > 0) {
+                        year = datestr.substring(datestr.length-4, datestr.length);
+                        month = datestr.substring(0, 2);
+                        $(this).datepicker('option', 'defaultDate', new Date(year, month-1, 1));
+                        $(this).datepicker('setDate', new Date(year, month-1, 1));
+                        $(".ui-datepicker-calendar").hide();
+                    }
+                }
+            })
+        });
+
+    };
+    
+    </script>  
+      
+      
+    <!-- 以下為calendar的程式碼，成功運行他人寫好的函式庫-->
+    <!--  
+    <link rel="stylesheet" href="/stylesheets/calendarview.css">  
+    <script src="/javascripts/prototype.js"></script>
+    <script src="/javascripts/calendarview.js"></script>
+
+    <div id="embeddedCalendar" style="margin-left: auto; margin-right: auto"></div>
+    <br />  
+    <div id="embeddedDateField" class="dateField">Select Date</div>
+    
+    <script type="text/javascript">
+      function setupCalendars() {
+        // Embedded Calendar
+        Calendar.setup(
+          {
+            dateField: 'embeddedDateField',
+            parentElement: 'embeddedCalendar'
+          }
+        )
+
+        
+      }
+
+      Event.observe(window, 'load', function() { setupCalendars() })
+    </script>
+    -->
+    
+      
+      
+    <footer class="page-footer" role="contentinfo">
+            <small class="copyright">COPYRIGHT &copy; Ting Yu </small>
+    </footer>
+      
+    
+    
+  </body>
+</html>

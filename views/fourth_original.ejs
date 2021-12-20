@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <!--
+    <meta http-equiv="refresh" content="30">
+    -->
+    <title>NCHC project</title>
+        <link rel='stylesheet' href='/stylesheets/style4.css' />
+        <link rel="stylesheet" href='/stylesheets/normalize.css'>
+        <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+        <script src="/libraries/jquery-3.1.1.min.js"></script>
+        <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+        
+        
+        
+      
+  </head>
+  <body>
+    <header class="page-header" role="banner">
+        <div class="inner">
+            <h1 class="site-logo"><a href="/index"><img src="/img/icon.png" alt="NCHC Project" height="65" width="200"></a></h1>
+            <nav class="primary-nav" role="navigation">
+                <ul>
+                    <li><a href="/index">Temperature</a></li>
+                    <li><a href="/second">Power</a></li>
+                    <li><a href="/third">3D Map</a></li>
+                    <li><a href="/fourth">Predict</a></li>
+                    
+                </ul>
+            </nav>
+        </div>
+    </header>  
+    
+    
+      
+
+    <p>
+        <label for="spinner">Change ErrorRate threshold:</label>
+        <input id="spinner" name="value" value="10">
+    </p>
+      
+    <button>Reset</button>
+      
+    <select name="mode selections" id= "modeSelection" onchange="modeSelection()">
+　       <option value="Total">Total</option>
+　       <option value="IT">IT</option>
+　       <option value="HVAC">HVAC</option>
+　       <option value="PUE">PUE</option>
+　   
+    </select>
+      
+    <select name="crossModel" id= "crossModelSelection" onchange="crossModelSelection()" >
+　       <option value="meter">meter</option>
+　       <option value="temp(inside)+meter">temp(inside)+meter</option>
+　       <option value="temp(outside)">temp(outside)</option>
+　       <option value="temp(outside)+meter">temp(outside)+meter</option> 
+        <option value="temp(inside)+temp(outside)+meter">temp(inside)+temp(outside)+meter
+        </option> 
+        <option value="temp(inside)+temp(outside)">temp(inside)+temp(outside)</option>
+        
+    </select>   
+      
+    <select name="resolution selections" 
+            id= "resolutionSelection" onchange="resolutionSelection()" >
+　       <option value="Minute">Minute</option>
+　       <option value="Hour">Hour</option>
+　       <option value="Day">Day</option>
+　       
+    </select>  
+      
+    <select name="model selections" id= "modelSelection" onchange="modelSelection()" >
+　       <option value="SVR">SVR</option>
+　       <option value="DecisionTree">DecisionTree</option>
+　       <option value="KNN">KNN</option>
+　       <option value="RandomForest">RandomForest</option>    
+    </select> 
+      
+    
+      
+    <div class="Row">
+        <svg width="960" height="500"></svg> 
+    </div>  
+    
+    <div class="slider" id="slider-range"></div> 
+    
+
+      
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+    <script>
+        //重要：這是將資料輸入script的方式
+        var predictData = <%- JSON.stringify(predict) %>
+            
+        console.log(predictData.length);
+        
+        //變數宣告區
+        
+        //1. select box之變數
+        //切換mode    
+        var mode = ["Total","IT","HVAC","PUE"],modeSelected = 0; 
+        //對應Total,IT,HVAC的警告上限
+        var alertThreshold = [259,153.2,106];
+        
+        //切換crossModel
+        var crossModel = ["meter","temp(inside)+meter","temp(outside)","temp(outside)+meter",
+                         "temp(inside)+temp(outside)+meter","temp(inside)+temp(outside)"];
+        var crossModelSelected = 0;
+        //crossModelData是在predictData[modeSelection]之下用不同crossModel來區分的資料
+        //裡面只有其中一個crossModel資料
+        var crossModelData = [];
+        
+        //切換解析度
+        var resolution = ["Minute","Hour","Day"],resolutionSelected = 0;
+        //切換預測模型
+        var model = ["SVR","DecisionTree","KNN","RandomForest"],modelSelected = 0;
+　       
+        //根據crossModelData再做resolution跟model的細分之後的資料 用它來計算all_startTime
+        var resolAndModelData = [];
+        
+        
+        //all_startTime用來記錄有多少種StartTime
+        var all_startTime = [];
+        //現在畫圖暫時使用的data
+        var dataForNow = [];
+        //記錄切換解析度跟模型的時候的StartTime位置
+        var StartPosition = 0;
+        
+        
+        //2. 用於"PUE" mode之變數
+        var lineActive = 1 , lineActive2 = 1; 
+        
+        //company對應下方的PUE
+        //selectedID是在d3.select()時使用，用for一次直接設定，同樣對應company
+        var company = ["NCHC","Google","Ebay"];
+        var PUE = [1.52,1.12,1.35];
+        var selectedID = ["#NCHC-PUE","#Google-PUE","#Ebay-PUE"];
+        
+        //3. 用於zoom的變數
+        var zoomPlace = 0; //0-->xyZoom 1-->xZoom 2-->yZoom
+        
+        
+        //執行這兩個function是將time修改成正確的格式，然後可以記錄StartTime有幾個是不一樣的
+        //因為同一個StartTime會有60筆資料，為了有利於slider的運作需要先記錄StartTime下來
+        modifyTimeFormet();
+        initArray();
+        
+        
+        //開始畫第一幅圖
+        var svg = d3.select("svg");
+        var margin = {top: 20, right: 20, bottom: 30, left: 40},
+        w = +svg.attr("width") - margin.left - margin.right,
+        h = +svg.attr("height") - margin.top - margin.bottom;
+        
+        var parseTime = d3.timeParse("%Y-%m-%d %H:%M:%S");
+        
+        var colors = d3.scaleOrdinal(d3.schemeCategory10);
+        
+        // set the ranges
+        var xScale = d3.scaleTime().range([0, w]);
+        var yScale = d3.scaleLinear().range([h, 0]);
+        
+        // Add the Axis
+        var xAxis = d3.axisBottom(xScale);//.tickFormat(d3.timeFormat("%Y-%m-%d %H"));
+        var yAxis = d3.axisLeft(yScale);
+        
+        var xyZoom = d3.zoom()
+            .scaleExtent([1, 32])
+            .translateExtent([[0, 0], [w, h]])
+            .extent([[0, 0], [w, h]])
+            .on("zoom", xyZoomed);
+        
+    
+        // define the line
+        var valueline = d3.line().curve(d3.curveMonotoneX)
+            .x(function(d) { return xScale(d.DataTime); })
+            .y(function(d) { return yScale(d.Predict); });
+        
+        var valueline2 = d3.line().curve(d3.curveMonotoneX)
+            .x(function(d) { return xScale(d.DataTime); })
+            .y(function(d) { return yScale(d.Ans); });
+    
+        
+        //這個clip用來讓line不會超出axis範圍 對應css中.line的clip-path
+        svg.append("defs").append("clipPath")
+            .attr("id", "clip")
+            .append("rect")
+            .attr("width", w)
+            .attr("height", h);
+            
+        
+        var g = svg.append("g")
+            .attr("transform","translate(" + margin.left + "," + margin.top + ")")
+            .call(xyZoom);
+            
+        
+        // format all the data
+        //這裡需要一次將所有層的data format過，讓切換模式不會因為parseTime出錯
+        for(var i = 0 ; i < predictData.length ; i++)
+        {
+            predictData[i].forEach(function(d,j) {
+
+                d.DataTime = parseTime(d.DataTime);
+                d.Ans = +d.Ans;
+                d.Predict = +d.Predict;
+
+            });
+        }
+
+        
+        // Scale the range of the data
+        // d3.extent會跟[d3.min(),d3.max()]會有一樣的結果
+        xScale.domain(d3.extent(dataForNow , function(d){ return d.DataTime } ));
+        //原先只有一條線的yScale
+        //yScale.domain(d3.extent(dataForNow , function(d){ return d.Predict } ));
+        
+        //兩條曲線的yScale
+        
+        yScale.domain(
+            [d3.min(dataForNow,function(d){ return Math.min(d.Predict,d.Ans)}),
+             d3.max(dataForNow,function(d){ return Math.max(d.Predict,d.Ans)})]);
+        
+        
+        // Add the valueline path.
+        
+        //draw line (In Total,HVAC,IT mode)
+        
+        g.append("path")
+            .datum(dataForNow)
+            .attr("class", "line")
+            .style('stroke', function(d) { 
+                return colors(0); })
+            .attr("d", valueline);
+        
+        g.append("path")
+            .datum(dataForNow)
+            .attr("class", "line2")
+            .style('stroke', function(d) { 
+                return colors(1); })
+            .attr("d", valueline2);
+        
+        //pre draw line in PUE mode
+        //純粹直線不能用append("path")，因為本來就沒有path這個東西，會變得無法顯示line
+        //先將圖畫好opacity設成0，切換到PUE時才顯示
+        //而因為此時xScale跟yScale都還不適合拿來畫，所以先不給值，等到切換後才給x1,y1,x2,y2
+        //第一條為NCHC自己的PUE結果
+        //第二條為Google data center的PUE結果
+        //第三條為Amazon data center的PUE結果
+        //用for一次設定
+        for(var i = 0 ; i < company.length ; i++)
+        {
+            //id為company[i]+"-PUE" ex:"NCHC-PUE","Google-PUE","Yahoo-PUE"
+            g.append("line").attr("class","line3").attr("id",company[i]+"-PUE")
+                .style('stroke', function(d) { 
+                    return colors(i); })
+                .attr("opacity",0);
+            g.append('text')
+                .attr("id" , company[i]+"-PUE-text")
+                .attr('dy', '1em')
+                .attr('text-anchor', 'end')
+                .text(company[i]+"-PUE")
+                .attr("opacity",0);
+        
+        }
+        
+        //為了在console裡面看起來比較簡潔，將圓形直接丟入一個"g"中做整理
+        var circles = g.append("g");
+        
+        //draw alert dot
+        circles.selectAll("circle").data(dataForNow).enter().append("circle")
+            .attr("class","circles")
+            .attr("r", function(d){ 
+                        //Total(第一個畫的圖)的threshold
+
+                        if(d.ErrorRate > 10)  return 5;
+                        else return 0 ;          
+                                  })
+            .attr("cx" , function(d){ return xScale(d.DataTime); })
+            .attr("cy" , function(d){ return yScale(d.Predict);})
+            .attr("fill" , "red");
+            
+        
+        //draw axis
+        g.append("g")
+            .attr("transform", "translate(0," + h + ")")
+            .attr("class","xAxis")
+            .call(xAxis);
+        
+        g.append("g").attr("class","yAxis").call(yAxis);
+        
+        //draw grid
+        g.append("g").attr("class", "xGrid")
+            .attr("transform", "translate(0," + h + ")")
+            .call(d3.axisBottom(xScale).tickSize(-h).tickFormat(""));
+
+        g.append("g").attr("class", "yGrid")
+            .call(d3.axisLeft(yScale).tickSize(-w).tickFormat(""));
+        
+        
+        
+        //測試使用一個rect蓋在xAxis上用於只zoom x軸 (現狀是怪怪的)
+        /*
+        g.append("rect")
+            .attr("class", "xyZoomBox")
+            .attr("width", w )
+            .attr("height", h)
+            
+            .style("visibility", "hidden")
+            .attr("pointer-events", "all")
+            .on("mouseover",function(){ console.log(zoomPlace); zoomPlace = 0; });
+        
+        g.append("rect")
+            .attr("class", "xZoomBox")
+            .attr("width", w - margin.left - margin.right)
+            .attr("height", 30)
+            .attr("transform", "translate(" + 0 + "," + h + ")")
+            .style("visibility", "hidden")
+            .attr("pointer-events", "all")
+            .on("mouseover",function(){ console.log(zoomPlace); zoomPlace = 1; });
+        
+        g.append("rect")
+            .attr("class", "yZoomBox")
+            .attr("width", 30)
+            .attr("height", h )
+            .attr("transform", "translate(" + -30 + "," + 0 + ")")
+            .style("visibility", 0)
+            .attr("pointer-events", "all")
+            .on("mouseover",function(){ console.log(zoomPlace); zoomPlace = 2; });
+            
+        */
+        
+        //指示是預測線的text 
+        //點選時用來隱藏/顯示線 (只有PUE mode中才會顯示)
+        
+        g.append("text").attr("x", w - 70 ).attr("y", margin.top)
+            .attr("class", "legend").style("fill",colors(0)).text("--- predict");
+        /*    
+            .on("click",function(){
+                if(lineActive == 1)    
+                    lineActive = 0;
+                else
+                    lineActive = 1;    
+                
+                d3.select(".line2").style("opacity", lineActive);
+            });
+        */
+        
+        g.append("text").attr("x", w - 70 ).attr("y", margin.top+30)
+            .attr("class", "legend").style("fill",colors(1)).text("--- answer");
+            
+        
+        d3.select("button")
+            .on("click", resetted);
+        
+        
+        //以下function區域
+        
+        //因為Time格式不對所以需要更改
+        function modifyTimeFormet(){
+            
+            var temString;
+            
+            //這裡需要一次將所有層的data的奇怪時間格式改為可parseTime的樣子原來的，以便切換模式不會出錯
+            for(var i = 0 ; i < predictData.length ; i++)
+            {    
+                predictData[i].forEach(function(d,j) {
+                    //replace"前"取代成"後"("T" -> " " , ".000Z" -> "") 然後再寫回d.StartTime
+                    temString = d.StartTime.replace("T"," ");
+                    temString = temString.replace(".000Z","");
+                    d.StartTime = temString;
+
+                    //DataTime用一樣的方式取代
+                    temString = d.DataTime.replace("T"," ");
+                    temString = temString.replace(".000Z","");
+                    d.DataTime = temString;
+
+                    //console.log(d.DataTime ," " , d.StartTime );
+                });
+            }
+        }
+        
+        //all_startTime跟dataForNow的初始化
+        function initArray(){
+            
+            //Step1 計算data中有幾個不同的StartTime方便slider運作
+            var countEquel = 0;
+            
+            //對應resolution的縮寫
+            var resol = ["min" , "h" , "d"];
+            //對應model的縮寫
+            var mod = ["0","1","2","3"];
+            //對應crossModel的縮寫
+            var cross = ["0","1","2","3","4","5","6"];
+            
+            predictData[modeSelected].forEach(function(d,i) {
+                if(d.CrossModel == cross[crossModelSelected])
+                    crossModelData.push(d);
+            
+            });
+                                              
+            crossModelData.forEach(function(d,i) {
+                if(d.Resolution == resol[resolutionSelected] && d.Model == mod[modelSelected])
+                {
+                    resolAndModelData.push(d);
+                }
+            });        
+            
+            console.log("crossModelData: ",crossModelData);
+            //console.log("resolAndModelData: ",resolAndModelData);
+            
+            //計算data中有幾個不同的StartTime方便slider運作 
+                                              
+            //這裡不用for是因為在切換模式時會重新呼叫initArray這個function
+            //所以只要根據modeSelected選擇那一層的資料即可
+            //predictData[modeSelected].forEach(function(d,j) 
+            resolAndModelData.forEach(function(d,j) 
+            {
+
+                if(j == 0)
+                    all_startTime.push(d.StartTime);
+                else 
+                {
+                    for(var k = 0 ; k < all_startTime.length ; k++)
+                    {
+                        if(d.StartTime == all_startTime[k])
+                        {
+                            countEquel++;
+                        }
+
+                    }
+                    //console.log(countEquel);
+                    if(countEquel == 0)
+                    {
+                        //確定沒有跟all_startTime裡面的時間重複才可以push
+                        //console.log("d.StartTime" , d.StartTime );
+                        all_startTime.push(d.StartTime);  
+                    }
+                    //重新計算是否有相同時間
+                    countEquel = 0;
+                }
+            });
+            
+            
+            //Step2 初始化第一個畫的圖的StartTime
+            //最剛開始畫的圖是使用最早的資料,解析度最低,SVR model
+            resolAndModelData.forEach(function(d,i) {
+                if(d.StartTime == all_startTime[0])
+                {
+                    dataForNow.push(d);
+                }
+            });
+            
+            console.log(all_startTime);
+            console.log(dataForNow);
+        }
+        
+        //拉水平slider時會更換StartTime
+        function updateData(newStartPosition){
+            
+            dataForNow = [];
+            
+            //對應resolution的縮寫
+            var resol = ["min" , "h" , "d"];
+            //對應model的縮寫
+            var mod = ["0","1","2","3"];
+            //對應crossModel的縮寫
+            var cross = ["0","1","2","3","4","5","6"];
+            
+            
+            //把移動過的StartTime position記錄下來 方便切換解析度,模型時使用
+            StartPosition = newStartPosition;
+            
+            //這裡處理資料的方式再切換解析度,模型時的方式相同
+            //predictData[modeSelected].forEach(function(d,j) //原先的方式
+            crossModelData.forEach(function(d,i) {
+                
+                if(d.StartTime == all_startTime[newStartPosition] 
+                   && d.Resolution == resol[resolutionSelected] 
+                   && d.Model == mod[modelSelected])
+                {
+                    dataForNow.push(d);
+                }
+            });
+            
+            //因為我們在畫第一次圖的時候就已經處理過資料了
+            //所以在這裡不需要再處理一次
+            /*
+            dataForNow.forEach(function(d,i){
+                d.DataTime = parseTime(d.DataTime);
+                d.Ans = +d.Ans;
+                d.Predict = +d.Predict;
+            });
+            */
+            
+            console.log("After slider:",dataForNow);
+            
+            xScale.domain(d3.extent(dataForNow , function(d){ return d.DataTime } ));
+            yScale.domain(
+                [d3.min(dataForNow,function(d){ return Math.min(d.Predict,d.Ans)}),
+                 d3.max(dataForNow,function(d){ return Math.max(d.Predict,d.Ans)})]);
+            
+            g.select(".xAxis").call(xAxis.scale(xScale));
+            g.select(".yAxis").call(yAxis.scale(yScale));
+            g.select(".xGrid")
+                .call(d3.axisBottom(xScale).tickSize(-h).tickFormat(""));
+            g.select(".yGrid")
+                .call(d3.axisLeft(yScale).tickSize(-w).tickFormat(""));
+            g.select(".line").datum(dataForNow)
+                    .attr("d",valueline
+                                .x(function(d) { return xScale(d.DataTime); })       
+                                .y(function(d) { return yScale(d.Predict); }));
+            g.select(".line2").datum(dataForNow)
+                    .attr("d",valueline2
+                                .x(function(d) { return xScale(d.DataTime); })       
+                                .y(function(d) { return yScale(d.Ans); }) );
+            
+            //在切換slider(StartTime)時，threshold改回10
+            $( "#spinner" ).val("10");
+            
+            //為了怕說第一次畫圖時圓點沒有標示出來，所以先刪除所有圓點(假設第一次有畫的話，當然沒話也沒差)
+            circles.selectAll("circle").remove();
+            
+            //再重新append一次circle
+            circles.selectAll("circle").data(dataForNow).enter().append("circle")
+                    .attr("class","circles")
+                    .attr("r", function(d){ 
+                        if(d.ErrorRate > 10) return 5;
+                        else return 0 ;          
+                    })
+                    .attr("cx" , function(d){ return xScale(d.DataTime); })
+                    .attr("cy" , function(d) { return yScale(d.Predict); })
+                    .style("fill","red");
+                    
+            //console.log(xScale.domain()," ",yScale.domain());
+            //console.log(d3.extent(dataForNow , function(d){ return d.Predict } ));
+        }
+        
+        //現在的Zoom稍稍有點奇怪 x,y一起動的時候 或是只有單軸動的時候不會有問題
+        //但是如果先xy一起zoom，再去用單軸zoom會造成整個圖縮回原先大小之後再放大
+        
+        function xyZoomed() {
+            
+            var t = d3.event.transform;
+            var xtrans; 
+            var ytrans;
+            
+            //console.log(zoomPlace);
+            if(zoomPlace == 0)
+                
+            {
+                xtrans = t.rescaleX(xScale);
+                ytrans = t.rescaleY(yScale);
+                
+                g.select(".xAxis").call(xAxis.scale(xtrans));
+                g.select(".yAxis").call(yAxis.scale(ytrans));
+                g.select(".xGrid")
+                    .call(d3.axisBottom(xtrans).tickSize(-h).tickFormat(""));
+                g.select(".yGrid")
+                    .call(d3.axisLeft(ytrans).tickSize(-w).tickFormat(""));
+                g.select(".line")
+                    .attr("d",valueline.x(function(d) { return xtrans(d.DataTime); }))
+                    .attr("d",valueline.y(function(d) { return ytrans(d.Predict); }));
+                g.select(".line2")
+                    .attr("d",valueline2.x(function(d) { return xtrans(d.DataTime); }))
+                    .attr("d",valueline2.y(function(d) { return ytrans(d.Ans); }));
+
+                circles.selectAll("circle")
+                    .attr("cx" , function(d){ return xtrans(d.DataTime); })
+                    .attr("cy" , function(d) { return ytrans(d.Predict); });
+            
+            }
+            
+            else if(zoomPlace == 1)
+            {
+            
+                xtrans = t.rescaleY(xScale);
+                
+                g.select(".xAxis").call(xAxis.scale(xtrans));
+                g.select(".xGrid")
+                    .call(d3.axisBottom(xtrans).tickSize(-h).tickFormat(""));
+
+                g.select(".line")
+                    .attr("d",valueline.x(function(d) { return xtrans(d.DataTime); }));
+                g.select(".line2")
+                    .attr("d",valueline2.x(function(d) { return xtrans(d.DataTime); }));
+
+                circles.selectAll("circle")
+                    .attr("cx" , function(d){ return xtrans(d.DataTime); });    
+            }
+            else 
+            {
+                ytrans = t.rescaleY(yScale);
+                g.select(".yAxis").call(yAxis.scale(ytrans));
+                g.select(".yGrid")
+                    .call(d3.axisLeft(ytrans).tickSize(-w).tickFormat(""));
+                g.select(".line")
+                    .attr("d",valueline.y(function(d) { return ytrans(d.Predict); }));
+                g.select(".line2")
+                    .attr("d",valueline2.y(function(d) { return ytrans(d.Ans); }));
+
+                circles.selectAll("circle")
+                    .attr("cy" , function(d) { return ytrans(d.Predict); });
+                
+            }
+                
+            
+            
+        }
+        
+        
+        //將縮放過的值重新回到原位
+        function resetted() {
+            g.transition().duration(800).call(xyZoom.transform, d3.zoomIdentity);
+
+        }
+        
+        //放在select box中的function 在切換選項時觸發
+        
+        //切換mode (Total,IT,HVAC,PUE)
+        function modeSelection(){
+            
+            //切換模式時，所有資料都要先清空
+            
+            
+            
+            crossModelData = [];
+            resolAndModelData = [];
+            dataForNow = [];
+            all_startTime =[];
+            StartPosition = 0;
+            crossModelSelected = 0;
+            resolutionSelected = 0;
+            modelSelected = 0;
+            //將所有的selection box值改為最初的值
+            $( "#crossModelSelection" ).val(crossModel[0]);
+            $( "#resolutionSelection" ).val(resolution[0]);
+            $( "#modelSelection" ).val(model[0]);
+            
+            
+            
+            //先看看選項是選哪一個
+            for(var i = 0 ; i < 4 ; i++)
+            {
+                if(document.getElementById("modeSelection").value == mode[i])
+                    modeSelected = i;
+                
+                console.log(document.getElementById("modeSelection").value ," ", mode[i]);
+            }
+            
+            //圖形就根據選擇結果變換
+            //首先就是PUE(modeSelected為3)因為需要另外做計算 所以分出來另外做
+            if(modeSelected == 3)
+            {
+                
+                g.select(".line").attr("opacity",0);
+                g.select(".line2").attr("opacity",0);
+                g.selectAll(".legend").attr("opacity",0);
+                d3.selectAll(".circles").attr("r",0);
+                
+                xScale.domain([parseTime("2017-01-01 00:00:00"),parseTime("2017-01-31 23:59:00")]);
+                yScale.domain([1.0,2.0]);
+                g.select(".xAxis").call(xAxis.scale(xScale));
+                g.select(".yAxis").call(yAxis.scale(yScale));
+                g.select(".xGrid")
+                    .call(d3.axisBottom(xScale).tickSize(-h).tickFormat(""));
+                g.select(".yGrid")
+                    .call(d3.axisLeft(yScale).tickSize(-w).tickFormat(""));
+                
+                //因為資料幾乎都重複 所以直接設好要選擇的ID 
+                //將三條線用for做更改PUE值
+                for(var i = 0 ; i < company.length ; i++)
+                {
+                    g.select(selectedID[i])
+                        .attr("x1",xScale(parseTime("2017-01-01 00:00:00")))
+                        .attr("y1",yScale(PUE[i]))
+                        .attr("x2",xScale(parseTime("2017-01-31 23:59:00")))
+                        .attr("y2",yScale(PUE[i]))
+                        
+                        .attr("opacity",1);
+                    g.select(selectedID[i]+"-text")
+                        .attr("x",xScale(parseTime("2017-01-31 23:59:00")))
+                        .attr("y",yScale(PUE[i]))
+                        .style("fill",colors(i))
+                        .attr("opacity",1);
+                }
+                
+            }
+            //其餘是直接有資料可以畫線的
+            else
+            {    
+                //非PUE mode時，將折線顯示，PUE橫線隱藏
+                g.select(".line").attr("opacity",1);
+                g.select(".line2").attr("opacity",1);
+                //要用selectAll才可以將所有相同class的物件做相同設定
+                g.selectAll(".legend").attr("opacity",1);
+                for(var i = 0 ; i < company.length ; i++)
+                {
+                    g.select(selectedID[i]).attr("opacity",0);
+                    g.select(selectedID[i]+"-text").attr("opacity",0);
+                }
+                
+                
+                
+                //重新更新資料
+                initArray();
+                
+                //最後將slider的range重新定義
+                $( "#slider-range" ).slider( "option", "min", 0 );
+                $( "#slider-range" )
+                    .slider( "option", "max", all_startTime.length - 1 );
+                
+                
+                //因為我們在畫第一次圖的時候就已經處理過資料了
+                //所以在這裡不需要再處理一次
+                //predictData.ForEach()......
+                
+                console.log("all start time: ",all_startTime );
+                
+                //重新畫一次圖
+                xScale.domain(d3.extent(dataForNow , function(d){ return d.DataTime } ));
+                yScale.domain(
+                    [d3.min(dataForNow,function(d){ return Math.min(d.Predict,d.Ans)}),
+                     d3.max(dataForNow,function(d){ return Math.max(d.Predict,d.Ans)})]);
+
+                g.select(".xAxis").call(xAxis.scale(xScale));
+                g.select(".yAxis").call(yAxis.scale(yScale));
+                g.select(".xGrid")
+                    .call(d3.axisBottom(xScale).tickSize(-h).tickFormat(""));
+                g.select(".yGrid")
+                    .call(d3.axisLeft(yScale).tickSize(-w).tickFormat(""));
+                g.select(".line").datum(dataForNow)
+                        .attr("d",valueline
+                                    .x(function(d) { return xScale(d.DataTime); })       
+                                    .y(function(d) { return yScale(d.Predict); }));
+                g.select(".line2").datum(dataForNow)
+                        .attr("d",valueline2
+                                    .x(function(d) { return xScale(d.DataTime); })       
+                                    .y(function(d) { return yScale(d.Ans); }) );
+
+                //在切換slider(StartTime)時，threshold改回10
+                $( "#spinner" ).val("10");
+
+                //為了怕說第一次畫圖時圓點沒有標示出來，所以先刪除所有圓點(假設第一次有畫的話，當然沒話也沒差)
+                circles.selectAll("circle").remove();
+
+                //再重新append一次circle
+                circles.selectAll("circle").data(dataForNow).enter().append("circle")
+                        .attr("class","circles")
+                        .attr("r", function(d){ 
+                            if(d.ErrorRate > 10) return 5;
+                            else return 0 ;          
+                        })
+                        .attr("cx" , function(d){ return xScale(d.DataTime); })
+                        .attr("cy" , function(d) { return yScale(d.Predict); })
+                        .style("fill","red");
+                    
+            }
+        }
+        
+        //切換不同的crossModel
+        function crossModelSelection(){
+            
+            //對應resolution的縮寫
+            var resol = ["min" , "h" , "d"];
+            //對應model的縮寫
+            var mod = ["0","1","2","3"];
+            //對應crossModel的縮寫
+            var cross = ["0","1","2","3","4","5","6"];
+            
+            for(var i = 0 ; i < 3 ; i++)
+            {
+                if(document.getElementById("crossModelSelection").value == crossModel[i])
+                    crossModelSelected = i;
+                
+            }
+            
+            //清除所有資料
+            crossModelData = [];
+            resolAndModelData = [];
+            dataForNow = [];
+            all_startTime =[];
+            StartPosition = 0;
+            resolutionSelected = 0;
+            modelSelected = 0;
+            //將所有的selection box值改為最初的值
+            $( "#resolutionSelection" ).val(resolution[0]);
+            $( "#modelSelection" ).val(model[0]);
+            
+
+            //重新更新資料
+            initArray();
+            
+            //最後將slider的range重新定義
+            $( "#slider-range" ).slider( "option", "min", 0 );
+            $( "#slider-range" )
+                .slider( "option", "max", all_startTime.length - 1 );
+
+
+            //因為我們在畫第一次圖的時候就已經處理過資料了
+            //所以在這裡不需要再處理一次
+            //predictData.ForEach()......
+
+            console.log("all start time: ",all_startTime );
+
+            //重新畫一次圖
+            xScale.domain(d3.extent(dataForNow , function(d){ return d.DataTime } ));
+            yScale.domain(
+                [d3.min(dataForNow,function(d){ return Math.min(d.Predict,d.Ans)}),
+                 d3.max(dataForNow,function(d){ return Math.max(d.Predict,d.Ans)})]);
+
+            g.select(".xAxis").call(xAxis.scale(xScale));
+            g.select(".yAxis").call(yAxis.scale(yScale));
+            g.select(".xGrid")
+                .call(d3.axisBottom(xScale).tickSize(-h).tickFormat(""));
+            g.select(".yGrid")
+                .call(d3.axisLeft(yScale).tickSize(-w).tickFormat(""));
+            g.select(".line").datum(dataForNow)
+                    .attr("d",valueline
+                                .x(function(d) { return xScale(d.DataTime); })       
+                                .y(function(d) { return yScale(d.Predict); }));
+            g.select(".line2").datum(dataForNow)
+                    .attr("d",valueline2
+                                .x(function(d) { return xScale(d.DataTime); })       
+                                .y(function(d) { return yScale(d.Ans); }) );
+
+            //在切換slider(StartTime)時，threshold改回10
+            $( "#spinner" ).val("10");
+
+            //為了怕說第一次畫圖時圓點沒有標示出來，所以先刪除所有圓點(假設第一次有畫的話，當然沒話也沒差)
+            circles.selectAll("circle").remove();
+
+            //再重新append一次circle
+            circles.selectAll("circle").data(dataForNow).enter().append("circle")
+                    .attr("class","circles")
+                    .attr("r", function(d){ 
+                        if(d.ErrorRate > 10) return 5;
+                        else return 0 ;          
+                    })
+                    .attr("cx" , function(d){ return xScale(d.DataTime); })
+                    .attr("cy" , function(d) { return yScale(d.Predict); })
+                    .style("fill","red");
+            
+        }
+        
+        
+        //切換解析度
+        function resolutionSelection(){
+            
+            //Step1 更新dataForNow資料
+            
+            
+            
+            for(var i = 0 ; i < 3 ; i++)
+            {
+                if(document.getElementById("resolutionSelection").value == resolution[i])
+                    resolutionSelected = i;
+                
+            }
+            
+            //所有資料清空
+            //但是因為model跟resolution是平行的，所以resolutionSelected跟modelSelected不需要重置
+            crossModelData = [];
+            resolAndModelData = [];
+            dataForNow = [];
+            all_startTime =[];
+            //更新資料
+            initArray();
+            //最後將slider的range重新定義
+            $("#slider-range").slider("option", "min", 0 );
+            $("#slider-range").slider("option", "max", all_startTime.length - 1);
+            
+            //console.log("After resol change All Start Time:",all_startTime);
+            //console.log(dataForNow);
+            
+            //然後重新畫圖
+            xScale.domain(d3.extent(dataForNow , function(d){ return d.DataTime } ));
+            yScale.domain(
+                [d3.min(dataForNow,function(d){ return Math.min(d.Predict,d.Ans)}),
+                 d3.max(dataForNow,function(d){ return Math.max(d.Predict,d.Ans)})]);
+            
+            g.select(".xAxis").call(xAxis.scale(xScale));
+            g.select(".yAxis").call(yAxis.scale(yScale));
+            g.select(".xGrid")
+                .call(d3.axisBottom(xScale).tickSize(-h).tickFormat(""));
+            g.select(".yGrid")
+                .call(d3.axisLeft(yScale).tickSize(-w).tickFormat(""));
+            g.select(".line").datum(dataForNow)
+                    .attr("d",valueline
+                                .x(function(d) { return xScale(d.DataTime); })       
+                                .y(function(d) { return yScale(d.Predict); }));
+            g.select(".line2").datum(dataForNow)
+                    .attr("d",valueline2
+                                .x(function(d) { return xScale(d.DataTime); })       
+                                .y(function(d) { return yScale(d.Ans); }) );
+            
+            //在切換resolution時，threshold改回10
+            $( "#spinner" ).val("10");
+            
+            //為了怕說第一次畫圖時圓點沒有標示出來，所以先刪除所有圓點(假設第一次有畫的話，當然沒畫也沒差)
+            circles.selectAll("circle").remove();
+            
+            circles.selectAll("circle").data(dataForNow).enter().append("circle")
+                    .attr("class","circles")
+                    .attr("r", function(d){ 
+                        
+                        if(d.ErrorRate > 10) return 5;
+                        else return 0 ;          
+                    })
+                    .attr("cx" , function(d){ return xScale(d.DataTime); })
+                    .attr("cy" , function(d) { return yScale(d.Predict); })
+                    .style("fill","red");
+                    
+                    
+        }
+        
+        //切換預測模型
+        function modelSelection(){
+            
+            
+            
+            
+            //對應四個model
+            for(var i = 0 ; i < 4 ; i++)
+            {
+                if(document.getElementById("modelSelection").value == model[i])
+                    modelSelected = i;
+                
+                
+            }
+            
+            console.log(modelSelected);
+            
+            //所有資料重算
+            //但是因為model跟resolution是平行的，所以resolutionSelected跟modelSelected不需要重置
+            crossModelData = [];
+            resolAndModelData = [];
+            dataForNow = [];
+            all_startTime =[];
+            
+            initArray();
+            //最後將slider的range重新定義
+            $("#slider-range").slider("option", "min", 0 );
+            $("#slider-range").slider("option", "max", all_startTime.length - 1);
+            
+            
+            //console.log("After resol change All Start Time:",all_startTime);
+            //console.log(dataForNow);
+            
+            xScale.domain(d3.extent(dataForNow , function(d){ return d.DataTime } ));
+            yScale.domain(
+                [d3.min(dataForNow,function(d){ return Math.min(d.Predict,d.Ans)}),
+                 d3.max(dataForNow,function(d){ return Math.max(d.Predict,d.Ans)})]);
+            
+            g.select(".xAxis").call(xAxis.scale(xScale));
+            g.select(".yAxis").call(yAxis.scale(yScale));
+            g.select(".xGrid")
+                .call(d3.axisBottom(xScale).tickSize(-h).tickFormat(""));
+            g.select(".yGrid")
+                .call(d3.axisLeft(yScale).tickSize(-w).tickFormat(""));
+            g.select(".line").datum(dataForNow)
+                    .attr("d",valueline
+                                .x(function(d) { return xScale(d.DataTime); })       
+                                .y(function(d) { return yScale(d.Predict); }));
+            g.select(".line2").datum(dataForNow)
+                    .attr("d",valueline2
+                                .x(function(d) { return xScale(d.DataTime); })       
+                                .y(function(d) { return yScale(d.Ans); }) );
+            
+            //在切換model時，threshold改回10
+            $( "#spinner" ).val("10");
+            
+            //為了怕說第一次畫圖時圓點沒有標示出來，所以先刪除所有圓點(假設第一次有畫的話，當然沒話也沒差)
+            circles.selectAll("circle").remove();
+            
+            circles.selectAll("circle").data(dataForNow).enter().append("circle")
+                    .attr("class","circles")
+                    .attr("r", function(d){ 
+                        if(d.ErrorRate > 10) return 5;
+                        else return 0 ;          
+                    })
+                    .attr("cx" , function(d){ return xScale(d.DataTime); })
+                    .attr("cy" , function(d) { return yScale(d.Predict); })
+                    .style("fill","red");
+                    
+                    
+        }
+        
+        //以下slider用jquery控制
+        
+        //當有兩個slider時需要變換目標，不能一直是$('.ui-slider-handle') (原先target部分)
+        //不然會造成相同tooltip顯示在不同的slider上
+        var target;
+        var curValue;
+        var tooltip;
+        
+        //水平slider 調整StartTime
+        $(function() {
+            $( "#slider-range" ).slider({
+                min: 0,
+                max: all_startTime.length - 1,
+                value:  0 ,
+                
+                create: function(event, ui){
+                     
+                    //ui.handle就是現在滑的bar
+                    target = ui.handle || $('.ui-slider-handle');
+                    
+                    //在產生slider時tooltip的內容
+                    curValue = all_startTime[0];
+                    tooltip = '<div class="tooltip"><div class="tooltip-inner">' + curValue + '</div><div class="tooltip-arrow"></div></div>';
+                    
+                
+                },
+                
+                slide: function( event, ui ){
+                    
+                    
+                    //console.log("value:",ui.value);
+                    
+                    //移動之後更新資料
+                    updateData(ui.value);
+                    
+                    //移動後修改tooltip的內容
+                    target = ui.handle || $('.ui-slider-handle');
+                    curValue = all_startTime[ui.value];
+                    tooltip = '<div class="tooltip"><div class="tooltip-inner">' + curValue + '</div><div class="tooltip-arrow"></div></div>';
+
+                    $(target).html(tooltip);
+                },
+                
+                stop: function( event, ui ){
+                    //多出這行是怕說滑鼠再滑的時候有時候會偏離slider桿子
+                    //這時tooltip就會一直留在那邊 所以需要多加這行 在結束之後tooltip隱藏
+                    $(target).html("");
+                }
+            });
+            
+            //在滑鼠放到slider桿子上的時候顯示tooltip 離開時隱藏
+            $(target).mouseleave(
+                function(){ $(target).html(""); });
+            $( target ).mouseenter(
+                function() { $(target).html(tooltip); });
+                
+                
+        });
+        
+        
+        //用jquery控制spinner(將input變成可以改變值的spinner)
+        $(function() {
+            $( "#spinner" ).spinner({
+                min: 0, 
+                max: 20,
+                stop: function( event, ui ) {
+                    //
+                    console.log("ErrorRate Threshold:",$( "#spinner" ).spinner("value"));
+                    
+                    circles.selectAll("circle").data(dataForNow)
+                        .attr("r", function(d){
+                            if(d.ErrorRate > $( "#spinner" ).spinner("value"))
+                                return 5;
+                            else
+                                return 0;
+                    });
+                    
+                }
+            });
+         
+        });
+        
+        
+    </script>
+      
+    
+    
+    
+    
+    
+    <footer class="page-footer" role="contentinfo">
+            <small class="copyright">COPYRIGHT &copy; Ting Yu </small>
+    </footer>
+      
+    
+    
+  </body>
+</html>

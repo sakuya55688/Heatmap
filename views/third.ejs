@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <!--
+    <meta http-equiv="refresh" content="30">
+    -->
+    <title>NCHC project</title>
+        <link rel='stylesheet' href='/stylesheets/style2.css' />
+        <link rel="stylesheet" href='/stylesheets/normalize.css'>
+        <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+        <script src="/libraries/jquery-3.1.1.min.js"></script>
+        <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+        
+        
+        <script src="/libraries/three-min.js"></script>
+        <script src="/libraries/ColladaLoader.js"></script>
+        <script src="/libraries/TrackballControls.js"></script>
+  </head>
+  <body>
+    <header class="page-header" role="banner">
+        <div class="inner">
+            <h1 class="site-logo"><a href="/index"><img src="/img/icon.png" alt="NCHC Project" height="65" width="200"></a></h1>
+            <nav class="primary-nav" role="navigation">
+                <ul>
+                    <li><a href="/index">Temperature</a></li>
+                    <li><a href="/second">Power</a></li>
+                    <li><a href="/third">3D Map</a></li>
+                    <li><a href="/fourth">Predict</a></li>
+                    
+                </ul>
+            </nav>
+        </div>
+    </header>  
+    <!--
+    <input type="button" name = "getData" onclick="updataData();">
+    <p id = "dataText"></p>
+    -->
+      
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+    <script>
+        
+        var scene = new THREE.Scene();
+        //更換背景顏色
+        scene.background = new THREE.Color(0xbed8df);
+        var camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
+        //camera.position.set(30,-10,40);
+        var renderer = new THREE.WebGLRenderer();
+        var dae;
+        renderer.setSize( window.innerWidth, window.innerHeight );
+        document.body.appendChild ( renderer.domElement); 
+
+        var light;   
+        function initLight() {
+            light = new THREE.DirectionalLight(0xFFFFCC, 1.0, 0);  
+            //light = new THREE.AmbientLight(0xFFFFCC,0.3);
+            light.castShadow = true;
+            light.position.set( 20, 20, 10 );                    
+            scene.add(light); 
+            light2 = new THREE.DirectionalLight(0xFFFFCC, 1.0, 0);  
+            light2.castShadow = true;
+            light2.position.set( -20, 0, 40 );                    
+            scene.add(light2); 
+        }
+
+        var controls;
+        controls = new THREE.TrackballControls(camera);
+        controls.rotateSpeed = 1.0;
+        controls.zoomSpeed = 1.0;
+        controls.panSpeed = 0.8;
+        controls.noZoom = false;
+        controls.noPan = false;
+        controls.staticMoving = false;
+        controls.dynamicDampingFactor = 0.3;
+        controls.keys = [ 65, 83, 68 ];
+
+        var loader = new THREE.ColladaLoader();
+        loader.load('/data/nchc.dae', function (result) {
+            dae = result.scene;
+            scene.add(result.scene);
+            dae.position.set(20,0,0); 
+            dae.rotation.x = 0;
+            dae.rotation.y = 0;
+            dae.rotation.z = 3.2;
+            dae.receiveShadow = true;
+        });
+        camera.position.z = 20;
+
+        function animate() {
+            requestAnimationFrame( animate );
+            controls.update();
+            renderer.render( scene, camera );
+        }
+        animate();
+        initLight();//打燈
+        
+        
+        //以下為練習http get的部分
+        /*
+        var data = <- JSON.stringify(powerData) >
+        data.forEach(function(obj){
+            document.getElementById("dataText").innerHTML += obj.S3;
+        });
+        */
+        
+            
+        var updateIncrement = 0;
+        function updataData(){
+            
+            updateIncrement++;
+            
+            //window.location是refresh整個頁面的方式
+            //window.location = "/third/?update=" + updateIncrement;
+            
+            //在client side頁面中使用get方法
+            //$.get("/要傳送頁面",{要傳送的資料},function回傳server response)
+            $.get("/third/update",{updateData:updateIncrement},function(result){
+                
+                data = result;
+                document.getElementById("dataText").innerHTML = "";
+                data.forEach(function(obj){
+                    document.getElementById("dataText").innerHTML += obj.S3;
+                });
+                console.log(data);
+            });
+            
+            
+            
+        } 
+        
+    </script>
+      
+    
+    
+    
+    <footer class="page-footer" role="contentinfo">
+            <small class="copyright">COPYRIGHT &copy; Ting Yu </small>
+    </footer>
+      
+    
+    
+  </body>
+</html>

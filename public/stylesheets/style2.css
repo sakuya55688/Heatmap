@@ -1,0 +1,281 @@
+@charset "UTF-8";
+
+/* Base */
+html { font-family: "Ropa Sans", sans-serif; font-size: 16px; line-height: 1.5; }
+body { background-color: rgb(240, 240, 240); color: rgb(0, 0, 0); min-width: 960px; padding-top: 2px; }
+h1, h2, h3, ul { margin: 0; }
+p { margin-left: 20px;}
+ul { padding-left: 0; }
+ul li { 
+    list-style-type: none;
+    margin-left: 20px;
+}
+a { 
+    color: inherit; text-decoration: none; 
+}
+img { vertical-align: middle; }
+.dummy { margin: 0 auto; max-width: 32em; padding: 6em 0; }
+
+
+/*
+ * Sticky header
+ */
+
+/* デフォルトのスタイル */
+.page-header {
+    background-color: rgb(255, 255, 255);
+    
+    width: 100%;
+    min-width: 960px;
+    height: 65px;
+    -webkit-box-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+            box-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+}
+
+/* スティッキー状態のスタイル */
+.page-header.sticky {
+    position: fixed;
+    top: 0;
+}
+
+.page-header > .inner {
+    margin: auto;
+    width: 960px;
+}
+
+.no-boxshadow .page-header {
+    border-bottom: 1px solid rgb(204, 204, 204);
+}
+
+/* Logo */
+.site-logo {
+    float: left;
+    margin-left: -20px;
+    margin-top: auto;
+}
+
+/* Primary nav */
+.primary-nav {
+    float: right;
+    line-height: 65px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+.primary-nav li {
+    float: left;
+}
+.primary-nav a {
+    display: block;
+    padding: 0 1.36em;
+}
+.primary-nav a:hover {
+    background-color: rgb(240, 240, 240);
+}
+
+/*delete padding: 2em 0 5px;*/
+.Row
+{
+    margin: 0 auto; 
+    display: table;
+    width: 100%; 
+    height: 400px;
+    table-layout: fixed; 
+    border-spacing: 10px; 
+    background-color: snow; 
+}
+.Column
+{
+    display: table-cell;
+    background-color: snow; 
+}
+
+.slider
+{
+    width: 80%px; 
+    margin-left:10%; 
+    margin-right:10%;
+}
+/*
+svg{
+    width: 80%; 
+    height: 400px;
+    margin-left:10%; 
+    margin-right:10%;
+}
+*/
+.page-footer {
+    background-color: #656565;
+}
+
+.page-footer small {
+    display: block;
+    color: #fff;
+    font-size: 13px;
+    text-align: right;
+    width: 976px;
+    margin: 0 auto;
+    height: 100px;
+    line-height: 120px;
+    letter-spacing: 0.15em;
+}
+
+
+
+
+
+
+
+/*以下是line chart 專用的部分*/
+
+/*button的style*/
+
+#resetButton {
+  position: absolute;
+  top: 20%;
+  left: 90%;
+  cursor: pointer;
+  
+  margin-top: -1.75em;
+  margin-left: -6em;
+  width: 12em;
+  padding: 1em 2em;
+  background: #000;
+  color: #fff;
+  border-radius: 8px;
+  border: solid 2px #fff;
+  font: 16px "Helvetica Neue", sans-serif;
+}
+
+#resetButton:focus {
+  outline: none;
+}
+
+#resetButton:hover {
+  text-shadow: 0 1px 0 #000;
+  background: #444;
+}
+
+#resetButton:active {
+  background: #222;
+}
+
+/*Select box的style*/
+
+#modeSelection{
+    position: absolute;
+    top: 30%;
+    left: 90%;
+    cursor: pointer;
+    margin-top: -1.75em;
+    margin-left: -6em;
+    width: 12em;
+    padding: 1em 2em;
+    background: #FFB366;
+    color: #fff;
+    border-radius: 8px;
+    border: solid 2px #fff;
+    font: 16px "Helvetica Neue", sans-serif;
+    
+    -webkit-appearance: none;
+}
+
+
+/*clip一定要加 不然會超出axis的範圍*/
+.line {
+  fill: none;
+  stroke: steelblue;
+  stroke-width: 1.2px;
+  clip-path: url(#clip);
+}
+
+.line2 {
+  fill: none;
+  stroke: steelblue;
+  stroke-width: 1.2px;
+  clip-path: url(#clip);
+}
+/*pue線段跟文字的設定*/
+.linePUE {
+  fill: none;
+  stroke-width: 1.2px;
+  clip-path: url(#clip);
+}
+
+.TextPUE{
+    clip-path: url(#clip);
+}
+
+/* 其實是line的設定 但是就沿用原先的命名了*/
+.area {
+  fill: none;
+  stroke: steelblue;
+  stroke-width: 1.2px;
+  clip-path: url(#clip);
+}
+
+.circles{
+    clip-path: url(#clip);
+}
+
+.zoom {
+  cursor: move;
+  fill: none;
+  pointer-events: all;
+}
+
+
+.xGrid line {
+  stroke: lightgrey;
+  stroke-opacity: 0.7;
+  shape-rendering: crispEdges;
+}
+
+.xGrid path {
+  stroke-width: 0;
+}
+
+.yGrid line {
+  stroke: lightgrey;
+  stroke-opacity: 0.9;
+  shape-rendering: crispEdges;
+}
+
+.yGrid path {
+  stroke-width: 0;
+}
+
+.legend{
+    font-size: 16px;         
+    font-weight: bold;         
+    text-anchor: start;
+}
+
+#clip{
+    fill: rgba(250, 250, 255, 0.6);
+}
+
+/* datePicker的設定 */
+.InsideContent{
+    margin-left: 0px;
+    display:inline-block;
+}
+#datePickerText{
+    position: absolute;
+    top: 40%;
+    left: 80%;
+    float:left; 
+    display:inline; 
+}
+
+#datePicker{
+    position: absolute;
+    top: 45%;
+    left: 80%;
+    width: 200px;
+    float:left; 
+    display:inline; 
+}
+.ui-datepicker-calendar {
+    display: none;
+}
+

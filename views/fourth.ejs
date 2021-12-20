@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <!--
+    <meta http-equiv="refresh" content="30">
+    -->
+    <title>NCHC project</title>
+        <link rel='stylesheet' href='/stylesheets/style4.css' />
+        <link rel="stylesheet" href='/stylesheets/normalize.css'>
+        <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+        <script src="/libraries/jquery-3.1.1.min.js"></script>
+        <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+        
+        
+        
+      
+  </head>
+  <body>
+    <header class="page-header" role="banner">
+        <div class="inner">
+            <h1 class="site-logo"><a href="/index"><img src="/img/icon.png" alt="NCHC Project" height="65" width="200"></a></h1>
+            <nav class="primary-nav" role="navigation">
+                <ul>
+                    <li><a href="/index">Temperature</a></li>
+                    <li><a href="/second">Power</a></li>
+                    <li><a href="/third">3D Map</a></li>
+                    <li><a href="/fourth">Predict</a></li>
+                    
+                </ul>
+            </nav>
+        </div>
+    </header>  
+     
+      
+    <button class = "button" id = "resetButton">Reset</button>
+      
+    <button class="button" id = "errorRateButton">ErrorRateVisibility</button>  
+      
+    <select name="mode selections" id= "modeSelection" onchange="modeSelectionVer2()">
+　       <option value="Total">Total</option>
+　       <option value="IT">IT</option>
+　       <option value="HVAC">HVAC</option>
+    </select>
+      
+    <select name="crossModel" id= "crossModelSelection" onchange="crossModelSelection()" >
+        <option value=0>meter to meter</option>
+        <option value=1>temp(inside) to meter</option>
+        <option value=2>Nothing</option>
+        <option value=3>temp(outside) to meter</option> 
+        <option value=4>Nothing</option>
+        <option value=5>temp(inside)+temp(outside)+meter to meter</option> 
+        <option value=6>temp(inside)+temp(outside) to meter</option>
+        
+    </select>   
+      
+      
+    <select name="resolution selections" 
+            id= "resolutionSelection" onchange="resolutionSelection()" >
+　       <option value="Hour">Hour</option>
+　       
+    </select>  
+        
+      
+    <select name="zoom selections" id= "zoomSelection" onchange="zoomSelection()">
+　       <option value="XY">Both XY</option>
+　       <option value="X">Only X</option>
+　       <option value="Y">Only Y</option>
+　       
+    </select>  
+      
+    <label for="startDate" id="datePickerText" class="InsideContent">Select Month</label>
+    <input name="startDate" id="datePicker" class="InsideContent" placeholder="click to show timePicker"/>  
+    <!--  
+    <label for="spinner" id="errorRateText">Change ErrorRate threshold:</label>
+    <input name="value" id="errorRateInput"  value="10"/>  
+    -->
+    <div class="Row">
+        <div id="g1"></div>
+    </div>  
+    
+    <div class="slider" id="slider-range"></div> 
+    
+
+      
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+    <script src="/libraries/d3-xyzoom.min.js"></script>  
+    <script src="/libraries/spin.js"></script>  
+      
+    <script>
+        //重要：這是將資料輸入script的方式
+        var powerData =<%-JSON.stringify(power)%>
+        var yearNow = <%-  JSON.stringify(yearNow) %> 
+        var monthNow = <%-  JSON.stringify(monthNow) %>
+        console.log(powerData);
+        
+        //變數宣告區
+        
+        // 用於"Total","IT","HVAC" mode之變數
+        var mode = ["Total","IT","HVAC","PUE"],modeSelected = 0; 
+        //對應Total,IT,HVAC的警告上限
+        var alertThreshold = [259,153.2,106];
+        
+        //切換使否要使用
+        var zoomSelect = ["XY","X","Y"] , zoomSelected = 0;
+        
+        //切換crossModel
+        var ITcrossModel = ["IT to IT","temp(inside) to IT", "nothing",
+                            "temp(outside) to IT", "nothing",
+                            "temp(inside)+temp(outside)+IT to IT",
+                            "temp(inside)+temp(outside) to IT ",
+                            "temp(inside)+temp(outside)+HVAC to IT","HVAC to IT"];
+        var ITcrossModelValid = [1,1,0,1,0,1,1,1,0];
+        
+        var HVACcrossModel = ["HVAC to HVAC","temp(inside) to HVAC", "nothing",
+                            "temp(outside) to HVAC", "nothing",
+                            "temp(inside)+temp(outside)+HVAC to HVAC",
+                            "temp(inside)+temp(outside) to HVAC ",
+                            "temp(inside)+temp(outside)+IT to ","IT to HVAC"];
+        var HVACcrossModelValid = [1,1,0,1,0,1,1,1,0];
+        
+        var TotalcrossModel = ["Total to Total","temp(inside) to Total", "nothing",
+                            "temp(outside) to Total", "nothing",
+                            "temp(inside)+temp(outside)+Total to Total",
+                            "temp(inside)+temp(outside) to Total "];
+        var TotalcrossModelValid = [1,1,0,1,0,1,1];
+        
+        var crossModelSelected = 0;
+        
+        var simpleModel = ["Answer","SVR","DecisionTree","KNN"];
+        
+        
+        //切換解析度 先將selection跟這裡的Minute去掉 所以resolutionSelected=0代表hour
+        var resolution = ["Hour","Day"],resolutionSelected = 0;
+        
+        
+        // 用於"PUE" mode之變數
+        var lineActive = 1 , lineActive2 = 1; 
+        
+        //company對應下方的PUE
+        //selectedID是在d3.select()時使用，用for一次直接設定，同樣對應company
+        var company = ["NCHC","Google","Ebay"];
+        var PUE = [1.52188,1.12,1.35];
+        var selectedID = ["#NCHC-PUE","#Google-PUE","#Ebay-PUE"];
+        
+        
+        //一開始的時候datePicker上的值為2017/01
+        $("#datePicker").datepicker('setDate', new Date(parseInt("2017"), parseInt("01")-1, 1)).trigger('change');
+        
+        //使用zoom跟brush的圖 
+        
+        var svg = d3.select("#g1").append("svg").attr("class","graph")
+                .attr("width",960).attr("height",500);
+            margin = {top: 20, right: 20, bottom: 110, left: 40},
+            margin2 = {top: 430, right: 20, bottom: 30, left: 40},
+            
+            
+            width = +svg.attr("width") - margin.left - margin.right,
+            height = +svg.attr("height") - margin.top - margin.bottom,
+            height2 = +svg.attr("height") - margin2.top - margin2.bottom;
+
+        //現在發現拿到的資料會是ISO 
+        var parseDate = d3.timeParse("%Y-%m-%dT%H:%M:%S.000Z");
+        var parseDate2 = d3.timeParse("%Y-%m-%dT%H:%M:%S.000Z");
+        
+        var color = d3.scaleOrdinal(d3.schemeCategory10);
+
+        var x = d3.scaleTime().range([0, width]),
+            x2 = d3.scaleTime().range([0, width]),
+            y = d3.scaleLinear().range([height, 0]),
+            y2 = d3.scaleLinear().range([height2, 0]);
+
+        var xAxis = d3.axisBottom(x),
+            xAxis2 = d3.axisBottom(x2),
+            yAxis = d3.axisLeft(y);
+            
+        
+        var brush = d3.brushX()
+            .extent([[0, 0], [width, height2]])
+            .on("brush end", brushed);
+
+        var zoom = d3.xyzoom()
+            .extent([[0, 0], [width, height]])
+            .scaleExtent([1, Infinity])
+            .translateExtent([[0, 0], [width, height]])
+            .scaleRatio([1, 1])
+            .on("zoom", zoomed);
+           
+        //area是答案線 area2是在brush世上的答案線
+        var area = d3.line()
+            .curve(d3.curveLinear)
+            .x(function(d) { return x(d.DataTime); })
+            .y(function(d) { return y(d.Ans); });
+
+        var area2 = d3.line()
+            .curve(d3.curveLinear)
+            .x(function(d) { return x2(d.DataTime); })
+            .y(function(d) { return y2(d.Ans); });
+        
+        var modelLine = d3.line()
+            .curve(d3.curveLinear)
+            .x(function(d) { return x(d.DataTime); })
+            .y(function(d) { return y(d.Predict); });
+        
+        
+        
+
+        svg.append("defs").append("clipPath")
+            .attr("id", "clip")
+            .append("rect")
+            .attr("width", width)
+            .attr("height", height);
+
+        var focus = svg.append("g")
+            .attr("class", "focus")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+        var context = svg.append("g")
+            .attr("class", "context")
+            .attr("transform", "translate(" + margin2.left + "," + margin2.top + ")");
+
+        var mean = d3.mean(powerData,function(d) { return +d.Ans});
+        console.log("mean",mean);
+        
+        powerData.forEach(function(d) {
+            d.StartTime = parseDate(d.StartTime);
+            d.DataTime = parseDate(d.DataTime);
+            d.Predict = +d.Predict;
+            if(+d.Ans != 0)
+                d.Ans = +d.Ans;
+            else 
+                d.Ans = mean;
+            //console.log(d.StartTime);
+        });
+        
+        
+        
+        x.domain(d3.extent(powerData, function(d) { return d.DataTime; }));
+        y.domain(d3.extent(powerData, function(d) { return d.Ans; }));
+        x2.domain(x.domain());
+        y2.domain(y.domain());
+        
+        //因為model資料有3種model，需要將不同的資料分開來
+        var dataNest = d3.nest().key(function(d) {return d.Model;}).entries(powerData);
+        
+        console.log("dataNest" , dataNest);
+        
+        var countTotalModel = 0;
+        
+        //畫出各個不同model的線
+        dataNest.forEach(function(d,i){
+            
+            //直接用
+            if(countTotalModel == 0)
+            {    
+                focus.append("path")
+                    .datum(d.values)
+                    .attr("class", "area")
+                    .attr("id","line1")
+                    .style("stroke", function() { 
+                        return color(countTotalModel); })
+                    .attr("d", area);
+                
+                context.append("path")
+                    .datum(d.values)
+                    .attr("class", "area")
+                    .attr("id","line2")
+                    .style("stroke", function() { 
+                        return color(countTotalModel); })
+                    .attr("d", area2);
+                
+                svg.append("text")
+                    .attr("x", width/1.8 )
+                    .attr("y", margin.top )
+                    .attr("class", "legend")    // style the legend
+                    .style("fill", function() { // Add the colours dynamically
+                        return color(countTotalModel); })
+                    .on("click", function(){
+                        // Determine if current line is visible 
+                        var active  = d.active ? false : true,
+                        newOpacity = active ? 0 : 1; 
+                        // Hide or show the elements based on the ID
+                        d3.select("#line1")
+                            .transition().duration(100) 
+                            .style("stroke-opacity", newOpacity); 
+                        // Update whether or not the elements are active
+                        d.active = active;
+                        
+                    })  
+                    .text("-- "+simpleModel[0]); 
+                
+            }
+            
+            countTotalModel++;
+            
+            focus.append("path")
+                .datum(d.values)
+                .attr("class", "modelLine")
+                .attr("id","modelLine" + d.key)
+                .style("stroke", function() { 
+                    return color(countTotalModel); })
+                .attr("d", modelLine);
+            
+            
+            
+            
+            
+            svg.append("text")
+                .attr("x", function(){ 
+                    if(i==2) return width/1.5 + 110 * i; 
+                    else return width/1.5 + 80 * i;
+                })
+                .attr("y", margin.top )
+                .attr("class", "legend")    // style the legend
+                .style("fill", function() { // Add the colours dynamically
+                    return color(countTotalModel); })
+                .on("click", function(){
+                    // Determine if current line is visible 
+                    var active  = d.active ? false : true,
+                    newOpacity = active ? 0 : 1; 
+                    // Hide or show the elements based on the ID
+                    d3.select("#modelLine" + d.key)
+                        .transition().duration(100) 
+                        .style("stroke-opacity", newOpacity); 
+                    
+                    //將特定線上的alert方塊去掉
+                    if(ERVisible == true)
+                        focus.selectAll(".rects"+simpleModel[i+1]).attr("opacity",newOpacity);
+                    else
+                        focus.selectAll(".rects"+simpleModel[i+1]).attr("opacity",0);
+                    console.log(d.active , active , newOpacity);    
+                    
+                    // Update whether or not the elements are active
+                    d.active = active;
+                    //console.log(d.active , active , newOpacity);    
+                })  
+                .text("-- "+simpleModel[countTotalModel]); 
+            
+            
+            //畫出alert rect提醒error超過10
+            //為了在console裡面看起來比較簡潔，將矩形直接丟入一個"g"中做整理
+            var rects = focus.append("g");
+        
+            //draw alert rect
+            rects.selectAll("rect").data(d.values).enter().append("rect")
+                .attr("class","rects rects"+simpleModel[i+1])
+                
+                .attr("width", function(d){ 
+                            //Total(第一個畫的圖)的threshold
+                            
+                            if(d.ErrorRate > 10)  return 10;
+                            else return 0 ;          
+                                      })
+                .attr("height", function(d){ 
+                            //Total(第一個畫的圖)的threshold
+                            
+                            if(d.ErrorRate > 10)  return 10;
+                            else return 0 ;          
+                                      })
+                .attr("x" , function(d){ return x(d.DataTime)-5; })
+                .attr("y" , function(d){ return y(d.Predict)-5;})
+                .attr('fill', 'rgba(0,0,0,0)')
+                .attr('stroke', "red")
+                .attr('stroke-width', '2');
+
+               
+        });
+        
+        
+        
+        //draw Axis
+
+        focus.append("g")
+            .attr("class", "axis axis--x")
+            .attr("transform", "translate(0," + height + ")")
+            .call(xAxis);
+
+        focus.append("g")
+            .attr("class", "axis axis--y")
+            .call(yAxis);
+
+    
+        context.append("g")
+            .attr("class", "axis axis--x")
+            .attr("transform", "translate(0," + height2 + ")")
+            
+            .call(xAxis2);
+        
+        
+        //draw Grid
+        focus.append("g").attr("class", "xGrid")
+            .attr("transform", "translate(0," + height + ")")
+            .call(d3.axisBottom(x).tickSize(-height).tickFormat(""));
+
+        focus.append("g").attr("class", "yGrid")
+            .call(d3.axisLeft(y).tickSize(-width).tickFormat(""));
+
+        context.append("g")
+          .attr("class", "brush")
+          .call(brush)
+          .call(brush.move, x.range());
+        
+        var zoomRect = svg.append("rect")
+            .attr("class", "zoom")
+            .attr("id" , "zoomArea")
+            .attr("width", width)
+            .attr("height", height)
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+            .call(zoom);
+        
+        d3.select("#resetButton")
+            .on("click", resetted);
+        
+        d3.select("#errorRateButton")
+            .on("click", ErrorRateVisibility);
+        
+        
+        
+        var justBrushed = false;
+        var justZoomed = false;
+        
+        function brushed() {
+            if (d3.event.sourceEvent && d3.event.sourceEvent.type === "zoom") 
+            {    
+                console.log(d3.event.sourceEvent , " " , d3.event.sourceEvent.type );
+                return; // ignore brush-by-zoom
+            }
+            
+            
+            var s = d3.event.selection || x2.range();
+            
+            
+            //x.domain(s.map(x2.invert, x2));
+            
+            focus.select(".area").attr("d", area);
+            focus.select(".axis--x").call(xAxis);
+            context.select(".zoom").call(zoom.transform, d3.zoomIdentity
+              .scale(width / (s[1] - s[0]))
+              .translate(-s[0], 0));
+            
+            
+        }
+        
+        
+
+        function zoomed() {
+            if (d3.event.sourceEvent && d3.event.sourceEvent.type === "brush") 
+            {    
+                console.log(d3.event.sourceEvent , " " , d3.event.sourceEvent.type );
+                return; // ignore brush-by-zoom
+            }
+            
+            
+            
+            //所謂zoom就是不讓原先x,y的domain被動到，所以才會有像下面一樣 ytrans出來
+            //但是因為我們現在使用了brush這個功能，因而有必要更新x的區間
+            
+            var t = d3.event.transform;
+            
+            var ytrans = t.rescaleY(y);
+            
+            
+            x.domain(t.rescaleX(x2).domain());
+            
+            
+            //縮放所有的圖
+            focus.select(".area")
+                .attr("d",area.x(function(d) { return x(d.DataTime); }))
+                .attr("d",area.y(function(d) { return ytrans(d.Ans); }));
+            focus.selectAll(".modelLine")
+                .attr("d",area.x(function(d) { return x(d.DataTime); }))
+                .attr("d",area.y(function(d) { return ytrans(d.Predict); }));
+            
+            //alert rect zoom
+            focus.selectAll(".rectsSVR")
+                .attr("x",function(d){ return x(d.DataTime)-5; })
+                .attr("y",function(d){ return ytrans(d.Predict)-5; });
+            focus.selectAll(".rectsDecisionTree")
+                .attr("x",function(d){ return x(d.DataTime)-5; })
+                .attr("y",function(d){ return ytrans(d.Predict)-5; });
+            focus.selectAll(".rectsKNN")
+                .attr("x",function(d){ return x(d.DataTime)-5; })
+                .attr("y",function(d){ return ytrans(d.Predict)-5; });
+            
+            focus.select(".axis--x").call(xAxis);
+            focus.select(".axis--y").call(yAxis.scale(ytrans));
+            focus.select(".xGrid")
+                .call(d3.axisBottom(x).tickSize(-height).tickFormat(""));
+            focus.select(".yGrid")
+                .call(d3.axisLeft(ytrans).tickSize(-width).tickFormat(""));
+            
+            context.select(".brush").call(brush.move, x.range().map(t.invertX, t));
+            
+            console.log(t.rescaleY(y).domain());
+            
+            
+        }
+        
+        function resetted() {
+            
+            //把整個zoom的scale重置
+            zoom.scaleBy(zoomRect,0,0);
+            //整個圖回復原樣
+            svg.transition().call(zoom.transform, d3.xyzoomIdentity);
+            
+        }
+        
+        //還有一點怪怪的
+        var ERVisible = true;
+        function ErrorRateVisibility(){
+            if(ERVisible == true)
+            {    
+                d3.selectAll(".rects").attr("opacity",0.0);
+                ERVisible = false;
+            }
+            else
+            {
+                d3.selectAll(".rects").attr("opacity",1.0);
+                ERVisible = true;
+            } 
+        }
+        
+        function zoomSelection(){
+            
+            //先看看選項是選哪一個
+            for(var i = 0 ; i < 4 ; i++)
+            {
+                if(document.getElementById("zoomSelection").value == zoomSelect[i])
+                    zoomSelected = i;
+                
+                console.log(document.getElementById("zoomSelection").value ," ", zoomSelect[i]);
+            }
+            
+            switch(zoomSelected)
+            {    
+                case 0:
+                    zoom.scaleRatio([1, 1]);
+                    console.log("xy");
+                    break;
+            
+                case 1:
+                    zoom.scaleRatio([1, 0]);
+                    console.log("x");
+                    break;
+                case 2:
+                    zoom.scaleRatio([0, 1]);
+                    console.log("y");
+                    break;
+            }
+            
+        }
+        
+        
+        function modeSelectionVer2(){
+            
+            //先看看選項是選哪一個
+            for(var i = 0 ; i < 4 ; i++)
+            {
+                if(document.getElementById("modeSelection").value == mode[i])
+                    modeSelected = i;
+                
+                console.log(document.getElementById("modeSelection").value ," ", mode[i]);
+            }
+
+
+            //使用等待讀取的圖示等到ajax get資料傳送回去client端
+            var opts = {    
+                lines:13,length:35,width:14,radius:42,scale:1.00,corners:1.0
+                ,opacity:1.0,rotate:0,direction:1,speed:1.0,trail:60,top:50
+                ,left:50,className: 'spinner', color: '#FF1234'
+            };
+            //讓旋轉圖開始旋轉表示有資料正在讀 (需要svg為非實體才有辦法取得其id)
+            var spinner = new Spinner().spin(document.getElementById("g1"));
+
+            d3.select(".context").style("fill-opacity",0.5);
+            d3.select(".focus").style("fill-opacity",0.5);
+            d3.selectAll(".area").style("stroke-opacity",0.5);
+            
+            //跟errorRate有關的東西
+            ERVisible = true;
+            d3.selectAll(".rects").remove();
+
+            //若是要及時看到最新的資料表 這裡改成{year: yearNow  , month: monthNow}
+            $.get("fourth/update",
+                  {modeSelected: modeSelected ,
+                   crossModelSelected: crossModelSelected, 
+                   resolutionSelected: resolutionSelected,
+                   year: "2017" , 
+                   month: "01"},
+            function(result){
+
+                //切換mode成功後也需要重新將datePicker的值回復到現在時間
+                //若是要及時看到最新的資料表 這裡改成new Date(parseInt("yearNow"), parseInt("monthNow")-1, 1))
+                $("#datePicker").datepicker('setDate', new Date(parseInt("2017"), parseInt("01")-1, 1)).trigger('change');
+
+                powerData = result;
+                
+                //把整個zoom的scale重置
+                zoom.scaleBy(zoomRect,0,0);
+                //整個圖回復原樣
+                svg.transition().call(zoom.transform, d3.xyzoomIdentity);
+
+                //將繪圖資料重新清理,slider range重設
+                httpGETUpdateData();
+
+                //讀完資料結束旋轉
+                spinner.stop();
+
+                d3.select(".context").style("fill-opacity",1.0);
+                d3.select(".focus").style("fill-opacity",1.0);
+                d3.selectAll(".area").style("stroke-opacity",1.0);
+
+                console.log("GET data",powerData);
+            });
+
+
+            
+            
+        }
+        
+        function crossModelSelection(){
+            //先看看選項是選哪一個
+            
+            crossModelSelected = parseInt(document.getElementById("crossModelSelection").value);
+                
+            console.log(document.getElementById("crossModelSelection").value ," ",crossModelSelected);
+            
+            zoom.scaleBy(zoomRect,0,0);
+            
+            if(crossModelSelected != 2 && crossModelSelected != 4)
+            {    
+                //跟errorRate有關的東西 要在重新讀取資料之後更新
+                ERVisible = true;
+                d3.selectAll(".rects").remove();
+                
+                modeSelectionVer2();
+            }
+            
+        }
+        
+        function resolutionSelection(){
+            
+        }
+        
+        
+        function httpGETUpdateData(){
+            
+            mean = d3.mean(powerData,function(d) { return +d.Ans});
+            console.log("mean",mean);
+        
+            if(modeSelected != 3)
+                powerData.forEach(function(d) {
+                    d.StartTime = parseDate2(d.StartTime);
+                    d.DataTime = parseDate2(d.DataTime);
+                    d.Predict = +d.Predict;
+                    if(+d.Ans != 0)
+                        d.Ans = +d.Ans;
+                    else 
+                        d.Ans = mean;
+                    //console.log(d.StartTime);
+                });
+            else{
+                
+            }
+
+
+            x.domain(d3.extent(powerData, function(d) { return d.DataTime; }));
+            y.domain(d3.extent(powerData, function(d) { return d.Ans; }));
+            x2.domain(x.domain());
+            y2.domain(y.domain());
+            
+            
+            dataNest = d3.nest().key(function(d) {return d.Model;}).entries(powerData);
+        
+            //console.log("dataNest" , dataNest);
+
+            countTotalModel = 0;
+
+            //畫出各個不同model的線
+            dataNest.forEach(function(d,i){
+
+                if(countTotalModel == 0)
+                {    
+                    focus.select("#line1")
+                        .datum(d.values)
+                        .attr("d",area.x(function(d) { return x(d.DataTime); }))
+                        .attr("d",area.y(function(d) { return y(d.Ans); }))
+                        .style("stroke-opacity",1.0);
+
+                    context.select("#line2")
+                        .datum(d.values)
+                        .attr("d", area2);
+                    
+
+                }
+                
+                countTotalModel++;
+                
+                
+                focus.select("#modelLine" + d.key)
+                    .datum(d.values)
+                    .attr("d", modelLine)
+                    .style("stroke-opacity",1.0);
+                
+                //切換時消除調，在把它畫回來
+                var rects = focus.append("g");
+                rects.selectAll("rect").data(d.values).enter().append("rect")
+                    .attr("class","rects rects"+simpleModel[i+1])
+
+                    .attr("width", function(d){ 
+                               
+                        if(d.ErrorRate > 10)  return 10;
+                        else return 0 ;          
+                    })
+                    .attr("height", function(d){ 
+                        if(d.ErrorRate > 10)  return 10;
+                        else return 0 ;          
+                     })
+                    .attr("x" , function(d){ return x(d.DataTime)-5; })
+                    .attr("y" , function(d){ return y(d.Predict)-5;})
+                    .attr('fill', 'rgba(0,0,0,0)')
+                    .attr('stroke', "red")
+                    .attr('stroke-width', '2');
+
+            });
+        
+            
+
+            
+            focus.select(".axis--x").call(xAxis.scale(x));
+            focus.select(".axis--y").call(yAxis.scale(y));
+            focus.select(".xGrid")
+                .call(d3.axisBottom(x).tickSize(-height).tickFormat(""));
+            focus.select(".yGrid")
+                .call(d3.axisLeft(y).tickSize(-width).tickFormat(""));
+            
+            context.select(".axis--x").call(xAxis2.scale(x2));
+            
+            d3.select(".brush").call(brush.move,x.range());
+            
+
+        }
+        
+
+        $(function() {
+            $('#datePicker').datepicker({
+                
+                dateFormat: "mm/yy",
+                changeMonth: true,
+                changeYear: true,
+                showButtonPanel: true,
+                onClose: function(dateText, inst) {
+                    function isDonePressed(){
+                        return ($('#ui-datepicker-div').html().indexOf('ui-datepicker-close ui-state-default ui-priority-primary ui-corner-all ui-state-hover') > -1);
+                    }
+
+                    if (isDonePressed()){
+                        var month = $("#ui-datepicker-div .ui-datepicker-month :selected").val();
+                        var year = $("#ui-datepicker-div .ui-datepicker-year :selected").val();
+                        
+                        //發現這邊拿到的month是重零開始計算的
+                        console.log("month:" , month , "year" , year);
+                        
+                        
+                        $('#datePicker').focusout()//Added to remove focus from datepicker input box on selecting date
+                        
+                        
+                        //發現這邊拿到的month是重零開始計算的 所以需要+1
+                        month++; 
+                        
+                        //ajax回傳的month因為month前面沒有0，所以需要另外加
+                        var monthInString;
+                        if(month >= 1 && month <= 9)
+                            monthInString = "0" + month;
+                        else
+                            monthInString = month;
+                        
+                        //確認ajax回去query的表 年月是否在2016/12~2017/01
+                        var ajaxOrNot = true;
+                        if(parseInt(year) == 2016)
+                        {    
+                            
+                            if(parseInt(month) == 12)
+                                ajaxOrNot = true;  
+                            else
+                                ajaxOrNot = false;
+                        }
+                        else if(parseInt(year) == 2017)
+                        {
+                            if(parseInt(month) == 1)
+                            {
+                                ajaxOrNot = true;   
+                            }
+                            else
+                                ajaxOrNot = false; 
+                        }
+                        else
+                        {
+                            ajaxOrNot = false;
+                        }
+                        
+                        console.log(month , year , ajaxOrNot);
+                        
+                        if(ajaxOrNot == true)
+                        {    
+                            
+                            //只有能夠使用ajax指令，才需要去更改datePicker上的值
+                            $(this).datepicker('setDate', new Date(year, month-1, 1)).trigger('change');
+                            
+                            //使用等待讀取的圖示等到ajax get資料傳送回去client端
+                            var opts = {    
+                                lines:13,length:35,width:14,radius:42,scale:1.00,corners:1.0
+                                ,opacity:1.0,rotate:0,direction:1,speed:1.0,trail:60,top:50
+                                ,left:50,className: 'spinner', color: '#FF1234'
+                            };
+                            //讓旋轉圖開始旋轉表示有資料正在讀 (需要svg為非實體才有辦法取得其id)
+                            var spinner = new Spinner().spin(document.getElementById("g1"));
+                            
+                            zoom.scaleBy(zoomRect,0,0);
+                            d3.select(".context").style("fill-opacity",0.5);
+                            d3.select(".focus").style("fill-opacity",0.5);
+                            //線段使用stroke-opacity來定義透明度
+                            d3.selectAll(".area").style("stroke-opacity",0.5);
+                            
+
+                            //因為沒有另外在app.use定義index的router，僅僅"/"就會指向index
+                            //所以只用/update來get
+                            $.get("fourth/update",
+                                  {modeSelected: modeSelected ,
+                                    crossModelSelected: crossModelSelected, 
+                                    resolutionSelected: resolutionSelected,
+                                    year: year , 
+                                    month: monthInString },
+                            function(result){
+
+                                powerData = result;
+                                
+                                //將繪圖資料重新清理,slider range重設,
+                                httpGETUpdateData();
+
+                                //讀完資料結束旋轉
+                                spinner.stop();
+                                
+                                d3.select(".context").style("fill-opacity",1.0);
+                                d3.select(".focus").style("fill-opacity",1.0);
+                                d3.selectAll(".area").style("stroke-opacity",1.0);
+
+                                //console.log("GET data",powerData);
+                            });
+                        }
+                        else
+                            alert("You can only select 2016/12 ~ 2017/01");
+                    }
+                },
+                beforeShow : function(input, inst) {
+
+                    inst.dpDiv.addClass('month_year_datepicker')
+                    
+                    if ((datestr = $(this).val()).length > 0) {
+                        year = datestr.substring(datestr.length-4, datestr.length);
+                        month = datestr.substring(0, 2);
+                        $(this).datepicker('option', 'defaultDate', new Date(year, month-1, 1));
+                        $(this).datepicker('setDate', new Date(year, month-1, 1));
+                        $(".ui-datepicker-calendar").hide();
+                    }
+                }
+            })
+        });
+        
+        
+        //用jquery控制spinner(將input變成可以改變值的spinner)
+        $(function() {
+            $("#errorRateInput").spinner({
+                min: 0, 
+                max: 20,
+                stop: function(event, ui) {
+                    //
+                    console.log("ErrorRate Threshold:",$( "#spinner" ).spinner("value"));
+                    
+                    circles.selectAll(".rects").data(powerData)
+                        .attr("width", function(d){
+                            if(d.ErrorRate > $( "#errorRateInput" ).spinner("value"))
+                                return 5;
+                            else
+                                return 0;
+                        
+                        })
+                        .attr("width" , function(d){
+                            if(d.ErrorRate > $( "#errorRateInput" ).spinner("value"))
+                                return 5;
+                            else
+                                return 0;
+                        
+                        });
+                    
+                }
+            });
+         
+        });
+        
+        
+        //~~~~~~~~~~
+        
+    </script>
+      
+    
+    
+    
+    
+    
+    <footer class="page-footer" role="contentinfo">
+            <small class="copyright">COPYRIGHT &copy; Ting Yu </small>
+    </footer>
+      
+    
+    
+  </body>
+</html>
